@@ -1,0 +1,1924 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D 粒子系统倒计时</title>
+    <script src="js/three.min.js"></script>
+    <script src="js/tween.umd.js"></script>
+    <script src="js/GLTFLoader.js"></script>
+    <style>
+        body {
+            margin: 0;
+            background-color: #000;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            justify-content: center;
+            align-items: flex-end;
+            padding-bottom: 50px;
+            z-index: 10;
+        }
+
+        #start-btn {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 215, 0, 0.5);
+            color: #ffd700;
+            padding: 15px 40px;
+            font-size: 1.2rem;
+            border-radius: 30px;
+            cursor: pointer;
+            pointer-events: auto;
+            backdrop-filter: blur(5px);
+            transition: all 0.3s ease;
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.2);
+        }
+
+        #start-btn:hover {
+            background: rgba(255, 215, 0, 0.2);
+            box-shadow: 0 0 30px rgba(255, 215, 0, 0.4);
+            transform: scale(1.05);
+        }
+
+        #hint {
+            position: absolute;
+            top: 20px;
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 0.9rem;
+            text-align: center;
+            width: 100%;
+        }
+
+        #danmaku-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: auto;
+            overflow: hidden;
+            z-index: 5;
+            display: none; /* 暂时隐藏弹幕系统 */
+        }
+
+        .danmaku-item {
+            position: absolute;
+            color: #ffd700;
+            font-size: 1.2rem;
+            font-weight: bold;
+            text-shadow: 0 0 10px rgba(255, 215, 0, 0.8),
+                         0 0 20px rgba(255, 215, 0, 0.6),
+                         0 0 30px rgba(255, 215, 0, 0.4);
+            cursor: pointer;
+            white-space: nowrap;
+            padding: 10px 20px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 20px;
+            backdrop-filter: blur(3px);
+            animation: blink 1.5s ease-in-out infinite;
+            transition: all 0.3s ease;
+            user-select: none;
+        }
+
+        .danmaku-item:hover {
+            transform: scale(1.2);
+            background: rgba(255, 215, 0, 0.2);
+            box-shadow: 0 0 30px rgba(255, 215, 0, 0.6);
+        }
+
+        @keyframes blink {
+            0%, 100% {
+                opacity: 1;
+                text-shadow: 0 0 10px rgba(255, 215, 0, 0.8),
+                             0 0 20px rgba(255, 215, 0, 0.6),
+                             0 0 30px rgba(255, 215, 0, 0.4);
+            }
+            50% {
+                opacity: 0.6;
+                text-shadow: 0 0 5px rgba(255, 215, 0, 0.4),
+                             0 0 10px rgba(255, 215, 0, 0.3),
+                             0 0 15px rgba(255, 215, 0, 0.2);
+            }
+        }
+
+        #stars-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: auto;
+            overflow: hidden;
+            z-index: 5;
+        }
+
+        .star-item {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            opacity: 0;
+            transition: all 0.3s ease;
+            user-select: none;
+        }
+
+        .bubble-particle {
+            position: absolute;
+            width: 2px;
+            height: 2px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(255,255,255,1) 0%, rgba(255,215,0,1) 50%, rgba(255,100,0,0.6) 100%);
+            box-shadow: 0 0 6px rgba(255, 215, 0, 1);
+            /* 移除动画以提高性能 */
+        }
+
+        .star-item.fade-out {
+            opacity: 0 !important;
+            transform: scale(0);
+            transition: all 1s ease-out;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="ui-layer">
+        <div id="hint" style="display: none;">点击礼物盒开始</div>
+        <button id="start-btn" style="display: none;">启航</button>
+    </div>
+
+    <div id="danmaku-container"></div>
+
+    <div id="stars-container"></div>
+
+    <script>
+        // 配置常量
+        const BASE_PARTICLE_COUNT = 4000; // 离散状态的粒子数量
+        const MAX_MODEL_PARTICLES = 8000; // 模型粒子上限数量
+        const DURATION = 1000; 
+        const CUBE_SIZE = 25;
+        
+        let scene, camera, renderer, particles, particles2, geometry, geometry2, material, material2;
+        let currentState = 'random'; 
+        let isTransitioning = false;
+        let positions, colors;
+        let currentParticleCount = BASE_PARTICLE_COUNT;
+        let mouseX = 0;
+        let mouseY = 0;
+        let targetRotationX = 0;
+        let targetRotationY = 0;
+
+        const shapes = {
+            random: null,
+            cube: null,
+            gift: null,
+            model: null,
+            giftBox: null,
+            number3: null,
+            number2: null,
+            number1: null,
+            explode: null
+        };
+
+        console.log('Page loaded, initializing particle system...');
+        window.onload = init;
+
+        let danmakuAudioFiles = [];
+        let danmakuItems = [];
+        let currentDanmakuIndex = 0;
+        const MAX_DANMAKU_ITEMS = 10;
+
+        async function loadDanmakuFiles() {
+            try {
+                const response = await fetch('voice/');
+                const text = await response.text();
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(text, 'text/html');
+                const links = doc.querySelectorAll('a');
+                
+                danmakuAudioFiles = [];
+                links.forEach(link => {
+                    const href = link.getAttribute('href');
+                    if (href && href.endsWith('.mp3')) {
+                        const fileName = href.split('/').pop();
+                        danmakuAudioFiles.push({
+                            name: fileName.replace('.mp3', ''),
+                            path: 'voice/' + fileName,
+                            played: false
+                        });
+                    }
+                });
+                
+                console.log('Loaded audio files:', danmakuAudioFiles);
+                currentDanmakuIndex = 0;
+                danmakuItems = [];
+                // 清空容器
+                const container = document.getElementById('danmaku-container');
+                if (container) {
+                    container.innerHTML = '';
+                }
+            } catch (error) {
+                console.error('Failed to load voice files:', error);
+            }
+        }
+
+        function showNextDanmaku() {
+            if (danmakuAudioFiles.length === 0) {
+                // 如果音频文件没有加载，重新加载
+                loadDanmakuFiles().then(() => {
+                    // 加载完成后再次尝试显示
+                    setTimeout(showNextDanmaku, 100);
+                });
+                return;
+            }
+            
+            if (currentDanmakuIndex >= danmakuAudioFiles.length) return;
+            
+            if (danmakuItems.length < MAX_DANMAKU_ITEMS) {
+                const file = danmakuAudioFiles[currentDanmakuIndex];
+                createDanmakuItem(file);
+                currentDanmakuIndex++;
+                
+                // 继续显示下一个，直到达到上限
+                setTimeout(showNextDanmaku, 800);
+            }
+        }
+
+        function createDanmakuItem(file) {
+            const container = document.getElementById('danmaku-container');
+            const item = document.createElement('div');
+            item.className = 'danmaku-item';
+            item.textContent = file.name;
+            item.dataset.path = file.path;
+            
+            // 随机位置
+            const startY = 100 + Math.random() * (window.innerHeight - 200);
+            const startX = Math.random() * (window.innerWidth - 200);
+            
+            // 初始状态：缩小、透明
+            item.style.top = startY + 'px';
+            item.style.left = startX + 'px';
+            item.style.transform = 'scale(0)';
+            item.style.opacity = '0';
+            item.style.animation = 'none';
+            
+            // 动画效果：像星星一样出现
+            setTimeout(() => {
+                item.style.transition = 'all 0.8s cubic-bezier(0.68, -0.55, 0.265, 1.55)';
+                item.style.transform = 'scale(1)';
+                item.style.opacity = '1';
+                item.style.animation = 'blink 1.5s ease-in-out infinite';
+            }, 100);
+            
+            item.addEventListener('click', () => {
+                playAudio(file, item);
+            });
+            
+            container.appendChild(item);
+            danmakuItems.push(item);
+        }
+
+        function playAudio(file, item) {
+            if (file.played) return;
+            
+            const audio = new Audio(file.path);
+            audio.play().catch(error => {
+                console.error('Failed to play audio:', error);
+            });
+            
+            audio.addEventListener('ended', () => {
+                file.played = true;
+                // 播放完毕后，慢慢隐去
+                item.style.transition = 'all 1s ease-out';
+                item.style.opacity = '0';
+                item.style.transform = 'scale(0)';
+                
+                setTimeout(() => {
+                    if (item.parentNode) {
+                        item.parentNode.removeChild(item);
+                    }
+                    // 从数组中移除
+                    const index = danmakuItems.indexOf(item);
+                    if (index > -1) {
+                        danmakuItems.splice(index, 1);
+                    }
+                    // 显示下一个弹幕
+                    showNextDanmaku();
+                }, 1000);
+            });
+        }
+
+        function resetDanmaku() {
+            // 检查音频文件是否已加载
+            if (danmakuAudioFiles.length === 0) {
+                // 如果没有加载，重新加载
+                loadDanmakuFiles();
+                console.log('Danmaku files not loaded, reloading...');
+            } else {
+                // 重置弹幕状态
+                danmakuAudioFiles.forEach(file => {
+                    file.played = false;
+                });
+                currentDanmakuIndex = 0;
+                danmakuItems = [];
+                // 清空容器
+                const container = document.getElementById('danmaku-container');
+                if (container) {
+                    container.innerHTML = '';
+                }
+                console.log('Danmaku reset');
+            }
+        }
+
+        function showDanmaku() {
+            const container = document.getElementById('danmaku-container');
+            container.style.display = 'block';
+            // 开始逐个显示弹幕
+            showNextDanmaku();
+        }
+
+        function hideDanmaku() {
+            const container = document.getElementById('danmaku-container');
+            container.style.display = 'none';
+        }
+
+        function canEnterCountdown() {
+            // 检查是否所有音频都已播放完毕
+            return starAudioFiles.every(file => file.played);
+        }
+
+        // 星星系统
+        let starAudioFiles = [];
+        let starItems = [];
+        let currentStarIndex = 0;
+        const MAX_STAR_ITEMS = 10;
+        const STAR_ORBIT_RADIUS = 450; // 扩大1.5倍半径
+        let starAnimationId = null;
+
+        function initStarSystem() {
+            starAudioFiles = [...danmakuAudioFiles]; // 复用音频文件列表
+            currentStarIndex = 0;
+            starItems = [];
+            // 清空容器
+            const container = document.getElementById('stars-container');
+            if (container) {
+                container.innerHTML = '';
+            }
+            console.log('Star system initialized');
+        }
+
+        function showNextStar() {
+            if (currentStarIndex >= starAudioFiles.length) return;
+            
+            if (starItems.length < MAX_STAR_ITEMS) {
+                const file = starAudioFiles[currentStarIndex];
+                createStarItem(file);
+                currentStarIndex++;
+                
+                // 继续显示下一个，直到达到上限
+                setTimeout(showNextStar, 800);
+            }
+        }
+
+        function createStarItem(file) {
+            const container = document.getElementById('stars-container');
+            const bubble = document.createElement('div');
+            bubble.className = 'star-item';
+            bubble.dataset.path = file.path;
+            
+            // 随机轨道参数（立体轨道）
+            const angle = Math.random() * Math.PI * 2;
+            const inclination = (Math.random() - 0.5) * Math.PI / 2; // 轨道倾角
+            const speed = 0.005 + Math.random() * 0.005;
+            
+            // 初始状态
+            bubble.style.opacity = '0';
+            bubble.style.transform = 'scale(0)';
+            
+            // 存储星星的轨道数据
+            bubble._starData = {
+                angle: angle,
+                inclination: inclination,
+                speed: speed,
+                paused: false,
+                file: file
+            };
+            
+            // 创建80个细小粒子组成泡泡
+            for (let i = 0; i < 80; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'bubble-particle';
+                
+                // 随机位置，形成球体
+                const radius = 7.5 + Math.random() * 2.5; // 泡泡半径缩小至原来的1/2
+                const theta = Math.random() * Math.PI * 2;
+                const phi = Math.random() * Math.PI;
+                
+                const x = Math.sin(phi) * Math.cos(theta) * radius;
+                const y = Math.sin(phi) * Math.sin(theta) * radius;
+                const z = Math.cos(phi) * radius;
+                
+                particle.style.left = (10 + x) + 'px'; // 10是泡泡中心
+                particle.style.top = (10 + y) + 'px';
+                particle.style.animationDelay = (Math.random() * 2) + 's';
+                
+                bubble.appendChild(particle);
+            }
+            
+            // 从暗到明出现的动画
+            setTimeout(() => {
+                bubble.style.transition = 'all 1s ease-out';
+                bubble.style.opacity = '1';
+                bubble.style.transform = 'scale(1)';
+            }, 100);
+            
+            // 鼠标交互
+            bubble.addEventListener('mouseenter', () => {
+                bubble._starData.paused = true;
+                // 悬停时放大泡泡并增强亮度
+                bubble.style.transition = 'all 0.2s ease-out';
+                bubble.style.transform = bubble.style.transform.replace(/scale\([^)]+\)/, 'scale(1.2)');
+                bubble.style.opacity = '1';
+                
+                // 增强粒子亮度
+                const particles = bubble.querySelectorAll('.bubble-particle');
+                particles.forEach(particle => {
+                    particle.style.boxShadow = '0 0 8px rgba(255, 215, 0, 1)';
+                });
+            });
+            
+            bubble.addEventListener('mouseleave', () => {
+                bubble._starData.paused = false;
+                // 离开时恢复泡泡大小和亮度
+                bubble.style.transition = 'all 0.2s ease-out';
+                // 重新计算原始缩放值
+                const depth = 1 + (Math.sin(bubble._starData.angle) * bubble._starData.speed / STAR_ORBIT_RADIUS) * 0.5;
+                const scale = depth;
+                bubble.style.transform = bubble.style.transform.replace(/scale\([^)]+\)/, `scale(${scale})`);
+                bubble.style.opacity = '0.8';
+                
+                // 恢复粒子亮度
+                const particles = bubble.querySelectorAll('.bubble-particle');
+                particles.forEach(particle => {
+                    particle.style.boxShadow = '0 0 6px rgba(255, 215, 0, 1)';
+                });
+            });
+            
+            // 点击播放音频
+            bubble.addEventListener('click', () => {
+                playStarAudio(file, bubble);
+            });
+            
+            container.appendChild(bubble);
+            starItems.push(bubble);
+        }
+
+        function playStarAudio(file, star) {
+            if (file.played) return;
+            
+            // 点击泡泡后，粒子向四面八方飞散
+            const particles = star.querySelectorAll('.bubble-particle');
+            particles.forEach(particle => {
+                // 随机方向和速度
+                const angle = Math.random() * Math.PI * 2;
+                const speed = 2 + Math.random() * 3;
+                const distance = 100 + Math.random() * 100;
+                
+                // 计算目标位置
+                const startX = parseFloat(particle.style.left);
+                const startY = parseFloat(particle.style.top);
+                const endX = startX + Math.cos(angle) * distance;
+                const endY = startY + Math.sin(angle) * distance;
+                
+                // 添加飞散动画
+                particle.style.transition = 'all 1s ease-out';
+                particle.style.left = endX + 'px';
+                particle.style.top = endY + 'px';
+                particle.style.opacity = '0';
+            });
+            
+            const audio = new Audio(file.path);
+            audio.play().catch(error => {
+                console.error('Failed to play audio:', error);
+            });
+            
+            audio.addEventListener('ended', () => {
+                file.played = true;
+                // 播放完毕后，移除泡泡
+                setTimeout(() => {
+                    if (star.parentNode) {
+                        star.parentNode.removeChild(star);
+                    }
+                    // 从数组中移除
+                    const index = starItems.indexOf(star);
+                    if (index > -1) {
+                        starItems.splice(index, 1);
+                    }
+                    // 显示下一个星星
+                    showNextStar();
+                }, 1000);
+            });
+        }
+
+        let lastUpdateTime = 0;
+        let updateInterval = 16; // 约60fps
+        
+        function updateStars() {
+            const now = performance.now();
+            
+            // 控制更新频率，每16ms更新一次（约60fps）
+            if (now - lastUpdateTime < updateInterval) {
+                starAnimationId = requestAnimationFrame(updateStars);
+                return;
+            }
+            
+            lastUpdateTime = now;
+            
+            starItems.forEach(star => {
+                if (star._starData && !star._starData.paused) {
+                    star._starData.angle += star._starData.speed;
+                    
+                    // 计算立体轨道位置
+                    const centerX = window.innerWidth / 2;
+                    const centerY = window.innerHeight / 2;
+                    
+                    // 应用轨道倾角，实现立体效果
+                    const inclination = star._starData.inclination;
+                    const cosInc = Math.cos(inclination);
+                    const sinInc = Math.sin(inclination);
+                    
+                    // 计算3D坐标
+                    const x = Math.cos(star._starData.angle) * STAR_ORBIT_RADIUS;
+                    const z = Math.sin(star._starData.angle) * STAR_ORBIT_RADIUS;
+                    const y = z * sinInc;
+                    
+                    // 投影到2D屏幕
+                    const screenX = centerX + x * cosInc;
+                    const screenY = centerY + y;
+                    
+                    // 计算深度，调整大小和亮度以增强立体感
+                    const depth = 1 + (z / STAR_ORBIT_RADIUS) * 0.5;
+                    const scale = depth;
+                    
+                    // 使用transform属性一次性更新位置和缩放，减少重排
+                    star.style.transform = `translate(${screenX - 10}px, ${screenY - 10}px) scale(${scale})`;
+                    
+                    // 根据深度调整亮度
+                    const opacity = 0.6 + (depth * 0.4);
+                    star.style.opacity = opacity;
+                    
+                    // 只在必要时更新粒子亮度（每4帧更新一次）
+                    if (Math.floor(now / 64) % 2 === 0) {
+                        // 调整粒子的亮度
+                        const particles = star.querySelectorAll('.bubble-particle');
+                        particles.forEach(particle => {
+                            particle.style.opacity = opacity;
+                            particle.style.boxShadow = `0 0 ${opacity * 6}px rgba(255, 215, 0, ${opacity * 1})`;
+                        });
+                    }
+                }
+            });
+            
+            starAnimationId = requestAnimationFrame(updateStars);
+        }
+
+        function showStars() {
+            initStarSystem();
+            showNextStar();
+            // 开始星星运动动画
+            if (!starAnimationId) {
+                updateStars();
+            }
+        }
+
+        function hideStars() {
+            const container = document.getElementById('stars-container');
+            if (container) {
+                container.innerHTML = '';
+            }
+            starItems = [];
+            currentStarIndex = 0;
+            if (starAnimationId) {
+                cancelAnimationFrame(starAnimationId);
+                starAnimationId = null;
+            }
+        }
+
+        function loadModel(url) {
+            return new Promise((resolve, reject) => {
+                const loader = new THREE.GLTFLoader();
+                loader.load(
+                    url,
+                    (gltf) => {
+                        const model = gltf.scene;
+                        const points = [];
+                        
+                        // 递归遍历模型的所有网格
+                        model.traverse((child) => {
+                            if (child.isMesh) {
+                                const geometry = child.geometry;
+                                geometry.computeBoundingBox();
+                                
+                                // 提取顶点数据
+                                const positions = geometry.attributes.position.array;
+                                for (let i = 0; i < positions.length; i += 3) {
+                                    const x = positions[i];
+                                    const y = positions[i + 1];
+                                    const z = positions[i + 2];
+                                    points.push({x, y, z});
+                                }
+                            }
+                        });
+                        
+                        // 如果顶点数量超过上限，进行采样
+                        let sampledPoints = points;
+                        if (points.length > MAX_MODEL_PARTICLES) {
+                            console.log('Model has too many vertices:', points.length, ', sampling to:', MAX_MODEL_PARTICLES);
+                            sampledPoints = [];
+                            const step = points.length / MAX_MODEL_PARTICLES;
+                            for (let i = 0; i < MAX_MODEL_PARTICLES; i++) {
+                                const index = Math.floor(i * step);
+                                sampledPoints.push(points[index]);
+                            }
+                        }
+                        
+                        // 创建模型数据
+                        const modelParticleCount = sampledPoints.length;
+                        shapes.model = new Float32Array(modelParticleCount * 3);
+                        
+                        for (let i = 0; i < modelParticleCount; i++) {
+                            const p = sampledPoints[i];
+                            shapes.model[i * 3] = p.x * 90; // 缩放模型（放大9倍）
+                            shapes.model[i * 3 + 1] = p.y * 90 - 35; // 缩放模型并往下移动
+                            shapes.model[i * 3 + 2] = p.z * 90;
+                        }
+                        
+                        console.log('Model loaded successfully, particle count:', modelParticleCount);
+                        resolve();
+                    },
+                    (xhr) => {
+                        console.log((xhr.loaded / xhr.total * 100) + '% loaded');
+                    },
+                    (error) => {
+                        console.error('An error happened while loading the model:', error);
+                        reject(error);
+                    }
+                );
+            });
+        }
+
+        function loadGiftBoxModel(url) {
+            return new Promise((resolve, reject) => {
+                const loader = new THREE.GLTFLoader();
+                loader.load(
+                    url,
+                    (gltf) => {
+                        const model = gltf.scene;
+                        const points = [];
+                        
+                        // 递归遍历模型的所有网格
+                        model.traverse((child) => {
+                            if (child.isMesh) {
+                                const geometry = child.geometry;
+                                geometry.computeBoundingBox();
+                                
+                                // 提取顶点数据
+                                const positions = geometry.attributes.position.array;
+                                for (let i = 0; i < positions.length; i += 3) {
+                                    const x = positions[i];
+                                    const y = positions[i + 1];
+                                    const z = positions[i + 2];
+                                    points.push({x, y, z});
+                                }
+                            }
+                        });
+                        
+                        // 如果顶点数量超过上限，进行采样
+                        let sampledPoints = points;
+                        if (points.length > MAX_MODEL_PARTICLES) {
+                            console.log('Gift box model has too many vertices:', points.length, ', sampling to:', MAX_MODEL_PARTICLES);
+                            sampledPoints = [];
+                            const step = points.length / MAX_MODEL_PARTICLES;
+                            for (let i = 0; i < MAX_MODEL_PARTICLES; i++) {
+                                const index = Math.floor(i * step);
+                                sampledPoints.push(points[index]);
+                            }
+                        }
+                        
+                        // 创建模型数据
+                        const modelParticleCount = sampledPoints.length;
+                        shapes.giftBox = new Float32Array(modelParticleCount * 3);
+                        
+                        // 定义旋转角度（弧度）
+                        const rotationY = Math.PI / 12; // 15度
+                        const rotationX = Math.PI / 12; // 15度
+                        
+                        for (let i = 0; i < modelParticleCount; i++) {
+                            const p = sampledPoints[i];
+                            
+                            // 应用旋转变换
+                            let x = p.x;
+                            let y = p.y;
+                            let z = p.z;
+                            
+                            // 绕Y轴旋转
+                            const cosY = Math.cos(rotationY);
+                            const sinY = Math.sin(rotationY);
+                            const tempX = x;
+                            x = x * cosY - z * sinY;
+                            z = z * cosY + tempX * sinY;
+                            
+                            // 绕X轴旋转
+                            const cosX = Math.cos(rotationX);
+                            const sinX = Math.sin(rotationX);
+                            const tempY = y;
+                            y = y * cosX - z * sinX;
+                            z = z * cosX + tempY * sinX;
+                            
+                            // 缩放和位移
+                            shapes.giftBox[i * 3] = x * 45; // 缩放模型（放大45倍）
+                            shapes.giftBox[i * 3 + 1] = y * 45 - 20; // 缩放模型并往下移动
+                            shapes.giftBox[i * 3 + 2] = z * 45;
+                        }
+                        
+                        console.log('Gift box model loaded successfully, particle count:', modelParticleCount);
+                        resolve();
+                    },
+                    (xhr) => {
+                        console.log((xhr.loaded / xhr.total * 100) + '% loaded');
+                    },
+                    (error) => {
+                        console.error('An error happened while loading the gift box model:', error);
+                        reject(error);
+                    }
+                );
+            });
+        }
+
+        async function init() {
+            console.log('Init function called');
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = 80; // 拉近相机，使粒子更清晰可见
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            document.body.appendChild(renderer.domElement);
+
+            const sprite = createParticleTexture();
+            material = new THREE.PointsMaterial({
+                size: 3,
+                map: sprite,
+                blending: THREE.AdditiveBlending,
+                depthTest: false,
+                transparent: true,
+                vertexColors: true,
+                opacity: 0.8
+            });
+
+            // 初始化基础粒子数量
+            updateParticleSystem(BASE_PARTICLE_COUNT);
+            
+            // 确保所有形状数据都被初始化
+            generateRandomData();
+            generateCubeData();
+            generateGiftData();
+            generateNumberData(3, 'number3');
+            generateNumberData(2, 'number2');
+            generateNumberData(1, 'number1');
+            generateExplodeData();
+            
+            // 尝试加载模型
+            try {
+                await loadModel('model/1a798ec64af8e8615555bd8266bea486.glb');
+                console.log('Model loaded successfully');
+            } catch (error) {
+                console.error('Failed to load model:', error);
+                // 如果模型加载失败，使用默认的随机数据
+                shapes.model = shapes.random;
+            }
+            
+            // 加载gift_box模型
+            try {
+                await loadGiftBoxModel('model/gift_box.glb');
+                console.log('Gift box model loaded successfully');
+            } catch (error) {
+                console.error('Failed to load gift box model:', error);
+                // 如果模型加载失败，创建一个默认的gift_box数据
+                const giftBoxParticleCount = 1000;
+                shapes.giftBox = new Float32Array(giftBoxParticleCount * 3);
+                for (let i = 0; i < giftBoxParticleCount; i++) {
+                    const radius = 15;
+                    const theta = Math.random() * Math.PI * 2;
+                    const phi = Math.random() * Math.PI;
+                    shapes.giftBox[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
+                    shapes.giftBox[i * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
+                    shapes.giftBox[i * 3 + 2] = radius * Math.cos(phi);
+                }
+                console.log('Default gift box data created');
+            }
+            
+            // 加载弹幕音频文件
+            await loadDanmakuFiles();
+            
+            particles = new THREE.Points(geometry, material);
+            scene.add(particles);
+            console.log('Particles created and added to scene');
+            console.log('Particles count:', currentParticleCount);
+            console.log('Current state:', currentState);
+            
+            // 初始化粒子位置为随机状态
+            const positionArray = geometry.attributes.position.array;
+            for (let i = 0; i < currentParticleCount; i++) {
+                positionArray[i * 3] = shapes.random[i * 3];
+                positionArray[i * 3 + 1] = shapes.random[i * 3 + 1];
+                positionArray[i * 3 + 2] = shapes.random[i * 3 + 2];
+            }
+            geometry.attributes.position.needsUpdate = true;
+            
+            // 创建第二个粒子系统用于显示gift_box
+            const giftBoxParticleCount = shapes.giftBox.length / 3;
+            geometry2 = new THREE.BufferGeometry();
+            const positions2 = new Float32Array(giftBoxParticleCount * 3);
+            const colors2 = new Float32Array(giftBoxParticleCount * 3);
+            
+            for (let i = 0; i < giftBoxParticleCount; i++) {
+                // 初始位置：从远处随机位置开始
+                const targetX = shapes.giftBox[i * 3];
+                const targetY = shapes.giftBox[i * 3 + 1];
+                const targetZ = shapes.giftBox[i * 3 + 2];
+                
+                positions2[i * 3] = targetX + (Math.random() - 0.5) * 500;
+                positions2[i * 3 + 1] = targetY + (Math.random() - 0.5) * 500;
+                positions2[i * 3 + 2] = targetZ + (Math.random() - 0.5) * 500;
+                
+                const color = new THREE.Color();
+                color.setHSL(0.1 + Math.random() * 0.1, 0.8, 0.5);
+                colors2[i * 3] = color.r;
+                colors2[i * 3 + 1] = color.g;
+                colors2[i * 3 + 2] = color.b;
+            }
+            
+            geometry2.setAttribute('position', new THREE.BufferAttribute(positions2, 3));
+            geometry2.setAttribute('color', new THREE.BufferAttribute(colors2, 3));
+            
+            material2 = new THREE.PointsMaterial({
+                size: 1.5,
+                map: sprite,
+                blending: THREE.AdditiveBlending,
+                depthTest: false,
+                transparent: true,
+                vertexColors: true,
+                opacity: 0.8
+            });
+            
+            particles2 = new THREE.Points(geometry2, material2);
+            scene.add(particles2);
+            console.log('Gift box particles created and added to scene');
+            
+            // 设置第二个粒子系统的初始状态
+            currentState2 = 'giftBox';
+            currentParticleCount2 = giftBoxParticleCount;
+            
+            // 粒子聚拢动画
+            const posAttr2 = geometry2.attributes.position;
+            let completed = 0;
+            const duration = 3000;
+            
+            for (let i = 0; i < giftBoxParticleCount; i++) {
+                new TWEEN.Tween(posAttr2.array)
+                    .to({
+                        [i * 3]: shapes.giftBox[i * 3],
+                        [i * 3 + 1]: shapes.giftBox[i * 3 + 1],
+                        [i * 3 + 2]: shapes.giftBox[i * 3 + 2]
+                    }, duration)
+                    .easing(TWEEN.Easing.Exponential.InOut)
+                    .onComplete(() => {
+                        completed++;
+                        if (completed === giftBoxParticleCount) {
+                            currentState2 = 'giftBox';
+                        }
+                    })
+                    .start();
+            }
+            
+            const updateTask = setInterval(() => {
+                posAttr2.needsUpdate = true;
+                if (completed >= giftBoxParticleCount) clearInterval(updateTask);
+            }, 16);
+
+            document.getElementById('start-btn').addEventListener('click', onStart);
+            window.addEventListener('mousedown', onDocumentMouseDown);
+            window.addEventListener('mousemove', onDocumentMouseMove);
+            window.addEventListener('resize', onWindowResize);
+
+            requestAnimationFrame(animate);
+        }
+
+        function updateParticleSystem(count) {
+            currentParticleCount = count;
+            
+            geometry = new THREE.BufferGeometry();
+            positions = new Float32Array(count * 3);
+            colors = new Float32Array(count * 3);
+
+            for (let i = 0; i < count; i++) {
+                const x = (Math.random() - 0.5) * 300;
+                const y = (Math.random() - 0.5) * 300;
+                const z = (Math.random() - 0.5) * 300;
+                positions[i * 3] = x;
+                positions[i * 3 + 1] = y;
+                positions[i * 3 + 2] = z;
+
+                const color = new THREE.Color();
+                color.setHSL(0.1 + Math.random() * 0.1, 0.8, 0.5);
+                colors[i * 3] = color.r;
+                colors[i * 3 + 1] = color.g;
+                colors[i * 3 + 2] = color.b;
+            }
+            
+            // 确保所有位置值都是有效的数字
+            for (let i = 0; i < count; i++) {
+                if (isNaN(positions[i * 3])) positions[i * 3] = 0;
+                if (isNaN(positions[i * 3 + 1])) positions[i * 3 + 1] = 0;
+                if (isNaN(positions[i * 3 + 2])) positions[i * 3 + 2] = 0;
+            }
+
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+            if (particles) {
+                scene.remove(particles);
+                particles = new THREE.Points(geometry, material);
+                scene.add(particles);
+            }
+        }
+
+        let currentParticleCount2 = 0;
+        let positions2, colors2;
+
+        function updateParticleSystem2(count) {
+            currentParticleCount2 = count;
+            
+            geometry2 = new THREE.BufferGeometry();
+            positions2 = new Float32Array(count * 3);
+            colors2 = new Float32Array(count * 3);
+
+            for (let i = 0; i < count; i++) {
+                const x = (Math.random() - 0.5) * 300;
+                const y = (Math.random() - 0.5) * 300;
+                const z = (Math.random() - 0.5) * 300;
+                positions2[i * 3] = x;
+                positions2[i * 3 + 1] = y;
+                positions2[i * 3 + 2] = z;
+
+                const color = new THREE.Color();
+                color.setHSL(0.1 + Math.random() * 0.1, 0.8, 0.5);
+                colors2[i * 3] = color.r;
+                colors2[i * 3 + 1] = color.g;
+                colors2[i * 3 + 2] = color.b;
+            }
+
+            geometry2.setAttribute('position', new THREE.BufferAttribute(positions2, 3));
+            geometry2.setAttribute('color', new THREE.BufferAttribute(colors2, 3));
+
+            if (particles2) {
+                scene.remove(particles2);
+                particles2 = new THREE.Points(geometry2, material2);
+                scene.add(particles2);
+            }
+        }
+
+        function createParticleTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 64;
+            canvas.height = 64;
+            const ctx = canvas.getContext('2d');
+            const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+            gradient.addColorStop(0, 'rgba(255,255,255,1)');
+            gradient.addColorStop(0.2, 'rgba(255,215,100,0.8)');
+            gradient.addColorStop(0.5, 'rgba(255,100,0,0.3)');
+            gradient.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, 64, 64);
+            const texture = new THREE.CanvasTexture(canvas);
+            return texture;
+        }
+
+        function generateRandomData() {
+            shapes.random = new Float32Array(currentParticleCount * 3);
+            for (let i = 0; i < currentParticleCount; i++) {
+                const x = (Math.random() - 0.5) * 300;
+                const y = (Math.random() - 0.5) * 300;
+                const z = (Math.random() - 0.5) * 300;
+                shapes.random[i * 3] = x;
+                shapes.random[i * 3 + 1] = y;
+                shapes.random[i * 3 + 2] = z;
+            }
+        }
+
+        function generateCubeData() {
+            const outerSize = CUBE_SIZE;
+            const innerSize = CUBE_SIZE * 0.7;
+            const outerDensity = 1.2; // 外层棱边密度
+            const innerDensity = 1.5;   // 内层粒子密度
+            
+            let index = 0;
+            
+            // 生成外层棱边粒子
+            const edgePoints = [];
+            
+            // 顶面和底面的边
+            for (let x = -outerSize; x <= outerSize; x += outerDensity) {
+                // 顶面
+                edgePoints.push({x, y: outerSize, z: -outerSize});
+                edgePoints.push({x, y: outerSize, z: outerSize});
+                // 底面
+                edgePoints.push({x, y: -outerSize, z: -outerSize});
+                edgePoints.push({x, y: -outerSize, z: outerSize});
+            }
+            
+            for (let z = -outerSize; z <= outerSize; z += outerDensity) {
+                // 顶面
+                edgePoints.push({x: -outerSize, y: outerSize, z});
+                edgePoints.push({x: outerSize, y: outerSize, z});
+                // 底面
+                edgePoints.push({x: -outerSize, y: -outerSize, z});
+                edgePoints.push({x: outerSize, y: -outerSize, z});
+            }
+            
+            // 四个侧面的垂直边
+            for (let y = -outerSize; y <= outerSize; y += outerDensity) {
+                edgePoints.push({x: -outerSize, y, z: -outerSize});
+                edgePoints.push({x: outerSize, y, z: -outerSize});
+                edgePoints.push({x: -outerSize, y, z: outerSize});
+                edgePoints.push({x: outerSize, y, z: outerSize});
+            }
+            
+            // 创建立方体数据
+            shapes.cube = new Float32Array(currentParticleCount * 3);
+            
+            // 添加外层棱边粒子
+            for (let i = 0; i < edgePoints.length && index < currentParticleCount; i++) {
+                const p = edgePoints[i];
+                shapes.cube[index * 3] = p.x;
+                shapes.cube[index * 3 + 1] = p.y;
+                shapes.cube[index * 3 + 2] = p.z;
+                index++;
+            }
+            
+            // 生成内层粒子方块 - 确保三维均匀分布
+            // 计算内层粒子数量，确保三个维度均匀
+            const innerParticles = currentParticleCount - index;
+            const side = Math.max(2, Math.ceil(Math.cbrt(innerParticles))); // 确保side至少为2
+            const step = (innerSize * 2) / (side - 1);
+            
+            // 确保三个维度都有足够的粒子
+            let x = 0, y = 0, z = 0;
+            while (index < currentParticleCount) {
+                const px = -innerSize + x * step;
+                const py = -innerSize + y * step;
+                const pz = -innerSize + z * step;
+                shapes.cube[index * 3] = px;
+                shapes.cube[index * 3 + 1] = py;
+                shapes.cube[index * 3 + 2] = pz;
+                index++;
+                
+                // 三维循环
+                z++;
+                if (z >= side) {
+                    z = 0;
+                    y++;
+                    if (y >= side) {
+                        y = 0;
+                        x++;
+                        if (x >= side) {
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            // 确保所有粒子位置都被初始化
+            for (let i = index; i < currentParticleCount; i++) {
+                // 用随机位置填充剩余粒子
+                const x = (Math.random() - 0.5) * innerSize * 2;
+                const y = (Math.random() - 0.5) * innerSize * 2;
+                const z = (Math.random() - 0.5) * innerSize * 2;
+                shapes.cube[i * 3] = x;
+                shapes.cube[i * 3 + 1] = y;
+                shapes.cube[i * 3 + 2] = z;
+            }
+        }
+
+        function generateGiftData() {
+            const size = CUBE_SIZE;
+            const ribbonWidth = 3;
+            const bowSize = 8;
+            const edgeDensity = 0.6; // 边缘密度
+            const faceDensity = 1.2; // 面密度
+            const ribbonDensity = 0.6; // 丝带密度
+            const bowDensity = 0.3; // 蝴蝶结密度
+            
+            const points = [];
+            
+            // 生成礼物盒主体 - 边缘高亮
+            // 12条棱边
+            const edges = [
+                // 顶面棱边
+                {start: {x: -size, y: size, z: -size}, end: {x: size, y: size, z: -size}},
+                {start: {x: size, y: size, z: -size}, end: {x: size, y: size, z: size}},
+                {start: {x: size, y: size, z: size}, end: {x: -size, y: size, z: size}},
+                {start: {x: -size, y: size, z: size}, end: {x: -size, y: size, z: -size}},
+                // 底面棱边
+                {start: {x: -size, y: -size, z: -size}, end: {x: size, y: -size, z: -size}},
+                {start: {x: size, y: -size, z: -size}, end: {x: size, y: -size, z: size}},
+                {start: {x: size, y: -size, z: size}, end: {x: -size, y: -size, z: size}},
+                {start: {x: -size, y: -size, z: size}, end: {x: -size, y: -size, z: -size}},
+                // 侧面棱边
+                {start: {x: -size, y: -size, z: -size}, end: {x: -size, y: size, z: -size}},
+                {start: {x: size, y: -size, z: -size}, end: {x: size, y: size, z: -size}},
+                {start: {x: size, y: -size, z: size}, end: {x: size, y: size, z: size}},
+                {start: {x: -size, y: -size, z: size}, end: {x: -size, y: size, z: size}}
+            ];
+            
+            // 生成棱边粒子
+            for (const edge of edges) {
+                const length = Math.sqrt(
+                    Math.pow(edge.end.x - edge.start.x, 2) +
+                    Math.pow(edge.end.y - edge.start.y, 2) +
+                    Math.pow(edge.end.z - edge.start.z, 2)
+                );
+                const steps = Math.ceil(length / edgeDensity);
+                for (let i = 0; i <= steps; i++) {
+                    const t = i / steps;
+                    const x = edge.start.x + (edge.end.x - edge.start.x) * t;
+                    const y = edge.start.y + (edge.end.y - edge.start.y) * t;
+                    const z = edge.start.z + (edge.end.z - edge.start.z) * t;
+                    points.push({x, y, z});
+                }
+            }
+            
+            // 生成礼物盒面
+            // 顶面
+            for (let x = -size + edgeDensity; x < size; x += faceDensity) {
+                for (let z = -size + edgeDensity; z < size; z += faceDensity) {
+                    points.push({x, y: size, z});
+                }
+            }
+            // 前面
+            for (let x = -size + edgeDensity; x < size; x += faceDensity) {
+                for (let y = -size + edgeDensity; y < size; y += faceDensity) {
+                    points.push({x, y, z: size});
+                }
+            }
+            // 右面
+            for (let y = -size + edgeDensity; y < size; y += faceDensity) {
+                for (let z = -size + edgeDensity; z < size; z += faceDensity) {
+                    points.push({x: size, y, z});
+                }
+            }
+            
+            // 生成丝带
+            // 横向丝带（Y=0）
+            for (let x = -size; x <= size; x += ribbonDensity) {
+                for (let z = -size; z <= size; z += ribbonDensity) {
+                    if (Math.abs(x) <= ribbonWidth || Math.abs(z) <= ribbonWidth) {
+                        points.push({x, y: 0, z});
+                    }
+                }
+            }
+            
+            // 纵向丝带（X=0）
+            for (let y = -size; y <= size; y += ribbonDensity) {
+                for (let z = -size; z <= size; z += ribbonDensity) {
+                    if (Math.abs(y) <= ribbonWidth || Math.abs(z) <= ribbonWidth) {
+                        points.push({x: 0, y, z});
+                    }
+                }
+            }
+            
+            // 生成蝴蝶结
+            // 蝴蝶结主体
+            for (let angle = 0; angle < Math.PI * 2; angle += bowDensity) {
+                const r = bowSize * 0.8;
+                const x = r * Math.cos(angle);
+                const y = size + bowSize * 0.5 + r * Math.sin(angle) * 0.5;
+                const z = 0;
+                points.push({x, y, z});
+            }
+            
+            // 蝴蝶结丝带
+            for (let angle = 0; angle < Math.PI; angle += bowDensity * 0.5) {
+                const r = bowSize * 1.2;
+                const x = r * Math.cos(angle);
+                const y = size + bowSize * 0.5;
+                const z = r * Math.sin(angle);
+                points.push({x, y, z});
+                points.push({x: -x, y, z});
+            }
+            
+            // 蝴蝶结中心
+            for (let r = 0; r < bowSize * 0.3; r += bowDensity) {
+                for (let angle = 0; angle < Math.PI * 2; angle += bowDensity) {
+                    const x = r * Math.cos(angle);
+                    const y = size + bowSize * 0.5;
+                    const z = r * Math.sin(angle);
+                    points.push({x, y, z});
+                }
+            }
+            
+            // 创建礼物盒数据
+            const giftParticleCount = points.length;
+            shapes.gift = new Float32Array(giftParticleCount * 3);
+            
+            for (let i = 0; i < giftParticleCount; i++) {
+                const p = points[i];
+                shapes.gift[i * 3] = p.x;
+                shapes.gift[i * 3 + 1] = p.y;
+                shapes.gift[i * 3 + 2] = p.z;
+            }
+        }
+
+        function generateNumberData(num, key) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 128;
+            canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = 'white';
+            ctx.font = 'bold 100px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(num.toString(), 64, 64);
+
+            const imgData = ctx.getImageData(0, 0, 128, 128).data;
+            const points = [];
+            for (let i = 0; i < imgData.length; i += 4) {
+                if (imgData[i] > 128) {
+                    const px = (i / 4) % 128;
+                    const py = Math.floor((i / 4) / 128);
+                    points.push({ x: (px - 64) * 0.8, y: (64 - py) * 0.8 });
+                }
+            }
+
+            // 创建数字数据
+            const numberParticleCount = points.length || 1000; // 确保至少有1000个粒子
+            const data = new Float32Array(numberParticleCount * 3);
+
+            // 确保points不为空
+            if (points.length === 0) {
+                // 如果没有点，生成随机位置
+                for (let i = 0; i < numberParticleCount; i++) {
+                    data[i * 3] = (Math.random() - 0.5) * 50;
+                    data[i * 3 + 1] = (Math.random() - 0.5) * 50;
+                    data[i * 3 + 2] = (Math.random() - 0.5) * 5;
+                }
+            } else {
+                for (let i = 0; i < numberParticleCount; i++) {
+                    const p = points[i % points.length];
+                    data[i * 3] = p.x + (Math.random() - 0.5) * 2;
+                    data[i * 3 + 1] = p.y + (Math.random() - 0.5) * 2;
+                    data[i * 3 + 2] = (Math.random() - 0.5) * 5; 
+                }
+            }
+            shapes[key] = data;
+        }
+
+        function generateExplodeData() {
+            shapes.explode = new Float32Array(currentParticleCount * 3);
+            for (let i = 0; i < currentParticleCount; i++) {
+                const radius = 120 + Math.random() * 40;
+                const theta = Math.random() * Math.PI * 2;
+                const phi = Math.random() * Math.PI;
+                shapes.explode[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
+                shapes.explode[i * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
+                shapes.explode[i * 3 + 2] = radius * Math.cos(phi);
+            }
+        }
+
+        function onStart() {
+            if (isTransitioning) return;
+            
+            const btnText = document.getElementById('start-btn').innerText;
+            
+            if (btnText === '再次启航') {
+                hideDanmaku();
+                hideStars(); // 隐藏星星系统
+                // 再次启航：第二系统的粒子聚拢回归成礼物盒
+                const giftBoxParticleCount = shapes.giftBox.length / 3;
+                updateParticleSystem2(giftBoxParticleCount);
+                
+                // 设置粒子大小为原始状态
+                material2.size = 1.5;
+                
+                // 将第二个粒子系统聚拢成gift_box状态
+                const posAttr2 = geometry2.attributes.position;
+                for (let i = 0; i < giftBoxParticleCount; i++) {
+                    const currentX = posAttr2.array[i * 3];
+                    const currentY = posAttr2.array[i * 3 + 1];
+                    const currentZ = posAttr2.array[i * 3 + 2];
+                    
+                    new TWEEN.Tween(posAttr2.array)
+                        .to({
+                            [i * 3]: shapes.giftBox[i * 3],
+                            [i * 3 + 1]: shapes.giftBox[i * 3 + 1],
+                            [i * 3 + 2]: shapes.giftBox[i * 3 + 2]
+                        }, 2000)
+                        .easing(TWEEN.Easing.Exponential.InOut)
+                        .onComplete(() => {
+                            currentState2 = 'giftBox';
+                            // 再次显现"启航"按钮
+                            document.getElementById('start-btn').style.display = 'none';
+                            document.getElementById('start-btn').innerText = '启航';
+                            document.getElementById('hint').innerText = '点击礼物盒开始';
+                            document.getElementById('hint').style.display = 'none';
+                            // 重置弹幕状态
+                            resetDanmaku();
+                        })
+                        .start();
+                }
+                
+                // 重置第二个粒子系统的旋转角度
+                if (particles2) {
+                    particles2.rotation.set(0, 0, 0);
+                }
+                
+                document.getElementById('start-btn').style.display = 'none';
+                document.getElementById('hint').style.display = 'none';
+            } else {
+                // 检查是否有模型数据
+                if (shapes.model) {
+                    // 先让第二系统的所有粒子随机向外飞散
+                    const posAttr2 = geometry2.attributes.position;
+                    const count2 = currentParticleCount2;
+                    
+                    for (let i = 0; i < count2; i++) {
+                        const currentX = posAttr2.array[i * 3];
+                        const currentY = posAttr2.array[i * 3 + 1];
+                        const currentZ = posAttr2.array[i * 3 + 2];
+                        
+                        new TWEEN.Tween(posAttr2.array)
+                            .to({
+                                [i * 3]: currentX + (Math.random() - 0.5) * 500,
+                                [i * 3 + 1]: currentY + (Math.random() - 0.5) * 500,
+                                [i * 3 + 2]: currentZ + (Math.random() - 0.5) * 500
+                            }, 3000)
+                            .easing(TWEEN.Easing.Exponential.Out)
+                            .start();
+                    }
+                    
+                    // 3秒后切换到模型形态
+                    setTimeout(() => {
+                        const modelParticleCount = shapes.model.length / 3;
+                        updateParticleSystem2(modelParticleCount);
+                        morphTo2('model', 3000, TWEEN.Easing.Exponential.InOut);
+                        document.getElementById('start-btn').style.display = 'none';
+                        document.getElementById('hint').innerText = '点击模型开启倒计时';
+                        showStars(); // 显示星星系统
+                    }, 3000);
+                } else {
+                    // 先让第二系统的所有粒子随机向外飞散
+                    const posAttr2 = geometry2.attributes.position;
+                    const count2 = currentParticleCount2;
+                    
+                    for (let i = 0; i < count2; i++) {
+                        const currentX = posAttr2.array[i * 3];
+                        const currentY = posAttr2.array[i * 3 + 1];
+                        const currentZ = posAttr2.array[i * 3 + 2];
+                        
+                        new TWEEN.Tween(posAttr2.array)
+                            .to({
+                                [i * 3]: currentX + (Math.random() - 0.5) * 500,
+                                [i * 3 + 1]: currentY + (Math.random() - 0.5) * 500,
+                                [i * 3 + 2]: currentZ + (Math.random() - 0.5) * 500
+                            }, 3000)
+                            .easing(TWEEN.Easing.Exponential.Out)
+                            .start();
+                    }
+                    
+                    // 3秒后切换到礼物盒形态
+                    setTimeout(() => {
+                        const giftParticleCount = shapes.gift.length / 3;
+                        updateParticleSystem2(giftParticleCount);
+                        generateGiftData();
+                        morphTo2('gift', 3000, TWEEN.Easing.Exponential.InOut);
+                        document.getElementById('start-btn').style.display = 'none';
+                        document.getElementById('hint').innerText = '点击礼物盒开启倒计时';
+                    }, 3000);
+                }
+            }
+        }
+
+        function onDocumentMouseDown(event) {
+            if (isTransitioning) return;
+            if (currentState2 === 'gift' || currentState2 === 'model') {
+                // 检查是否可以进入倒计时
+                if (canEnterCountdown()) {
+                    startCountdownSequence();
+                }
+            } else if (currentState2 === 'giftBox') {
+                // 点击礼物盒时调用启航功能
+                onStart();
+            }
+        }
+
+        function onDocumentMouseMove(event) {
+            mouseX = (event.clientX / window.innerWidth) * 2 - 1;
+            mouseY = -(event.clientY / window.innerHeight) * 2 + 1;
+        }
+
+        function morphTo(targetKey, duration = DURATION, easing = TWEEN.Easing.Exponential.InOut) {
+            isTransitioning = true;
+            const targetData = shapes[targetKey];
+            const targetParticleCount = targetData.length / 3;
+            
+            // 如果目标形态的粒子数量不同，更新粒子系统
+            if (targetParticleCount !== currentParticleCount) {
+                updateParticleSystem(targetParticleCount);
+                // 重新生成当前形态的数据
+                if (targetKey === 'random') generateRandomData();
+                else if (targetKey === 'cube') generateCubeData();
+                else if (targetKey === 'gift') generateGiftData();
+                else if (targetKey === 'model') {
+                    // 模型数据已经在loadModel函数中生成
+                }
+                else if (targetKey === 'number3') generateNumberData(3, 'number3');
+                else if (targetKey === 'number2') generateNumberData(2, 'number2');
+                else if (targetKey === 'number1') generateNumberData(1, 'number1');
+                else if (targetKey === 'explode') generateExplodeData();
+            }
+            
+            // 调整粒子大小
+            if (targetKey === 'model') {
+                material.size = 1.5; // 模型时粒子大小缩小2倍
+            } else {
+                material.size = 3; // 其他形态恢复默认大小
+            }
+            
+            const posAttr = geometry.attributes.position;
+            const targetDataUpdated = shapes[targetKey];
+            
+            let completed = 0;
+            const count = currentParticleCount;
+            
+            for (let i = 0; i < count; i++) {
+                new TWEEN.Tween(posAttr.array)
+                    .to({
+                        [i * 3]: targetDataUpdated[i * 3],
+                        [i * 3 + 1]: targetDataUpdated[i * 3 + 1],
+                        [i * 3 + 2]: targetDataUpdated[i * 3 + 2]
+                    }, duration)
+                    .easing(easing)
+                    .onComplete(() => {
+                        completed++;
+                        if (completed === count) {
+                            isTransitioning = false;
+                            currentState = targetKey;
+                        }
+                    })
+                    .start();
+            }
+            
+            const updateTask = setInterval(() => {
+                posAttr.needsUpdate = true;
+                if (completed >= count) clearInterval(updateTask);
+            }, 16);
+        }
+
+        let currentState2 = 'random';
+
+        function morphTo2(targetKey, duration = DURATION, easing = TWEEN.Easing.Exponential.InOut) {
+            const targetData = shapes[targetKey];
+            const targetParticleCount = targetData.length / 3;
+            const currentCount = currentParticleCount2;
+            
+            // 调整粒子大小
+            if (targetKey === 'model') {
+                material2.size = 1.5;
+            } else {
+                material2.size = 3;
+            }
+            
+            const posAttr2 = geometry2.attributes.position;
+            let completed = 0;
+            
+            if (targetParticleCount > currentCount) {
+                // 需要更多粒子，更新粒子系统数量
+                updateParticleSystem2(targetParticleCount);
+                
+                // 重新获取position attribute
+                const newPosAttr2 = geometry2.attributes.position;
+                
+                // 原有粒子平滑过渡到新位置
+                for (let i = 0; i < currentCount; i++) {
+                    new TWEEN.Tween(newPosAttr2.array)
+                        .to({
+                            [i * 3]: targetData[i * 3],
+                            [i * 3 + 1]: targetData[i * 3 + 1],
+                            [i * 3 + 2]: targetData[i * 3 + 2]
+                        }, duration)
+                        .easing(easing)
+                        .onComplete(() => {
+                            completed++;
+                            if (completed === targetParticleCount) {
+                                currentState2 = targetKey;
+                            }
+                        })
+                        .start();
+                }
+                
+                // 新增的粒子从远处聚拢
+                for (let i = currentCount; i < targetParticleCount; i++) {
+                    const targetX = targetData[i * 3];
+                    const targetY = targetData[i * 3 + 1];
+                    const targetZ = targetData[i * 3 + 2];
+                    
+                    // 从远处随机位置开始
+                    const startX = targetX + (Math.random() - 0.5) * 500;
+                    const startY = targetY + (Math.random() - 0.5) * 500;
+                    const startZ = targetZ + (Math.random() - 0.5) * 500;
+                    
+                    newPosAttr2.array[i * 3] = startX;
+                    newPosAttr2.array[i * 3 + 1] = startY;
+                    newPosAttr2.array[i * 3 + 2] = startZ;
+                    
+                    new TWEEN.Tween(newPosAttr2.array)
+                        .to({
+                            [i * 3]: targetX,
+                            [i * 3 + 1]: targetY,
+                            [i * 3 + 2]: targetZ
+                        }, duration)
+                        .easing(easing)
+                        .onComplete(() => {
+                            completed++;
+                            if (completed === targetParticleCount) {
+                                currentState2 = targetKey;
+                            }
+                        })
+                        .start();
+                }
+                
+                const updateTask = setInterval(() => {
+                    newPosAttr2.needsUpdate = true;
+                    if (completed >= targetParticleCount) clearInterval(updateTask);
+                }, 16);
+                
+            } else if (targetParticleCount < currentCount) {
+                // 需要更少粒子，将多余粒子平滑消除
+                for (let i = 0; i < targetParticleCount; i++) {
+                    new TWEEN.Tween(posAttr2.array)
+                        .to({
+                            [i * 3]: targetData[i * 3],
+                            [i * 3 + 1]: targetData[i * 3 + 1],
+                            [i * 3 + 2]: targetData[i * 3 + 2]
+                        }, duration)
+                        .easing(easing)
+                        .onComplete(() => {
+                            completed++;
+                            if (completed === currentCount) {
+                                // 所有动画完成后，更新粒子系统数量
+                                updateParticleSystem2(targetParticleCount);
+                                currentState2 = targetKey;
+                            }
+                        })
+                        .start();
+                }
+                
+                // 多余的粒子飞散到远处
+                for (let i = targetParticleCount; i < currentCount; i++) {
+                    const currentX = posAttr2.array[i * 3];
+                    const currentY = posAttr2.array[i * 3 + 1];
+                    const currentZ = posAttr2.array[i * 3 + 2];
+                    
+                    new TWEEN.Tween(posAttr2.array)
+                        .to({
+                            [i * 3]: currentX + (Math.random() - 0.5) * 500,
+                            [i * 3 + 1]: currentY + (Math.random() - 0.5) * 500,
+                            [i * 3 + 2]: currentZ + (Math.random() - 0.5) * 500
+                        }, duration)
+                        .easing(easing)
+                        .onComplete(() => {
+                            completed++;
+                            if (completed === currentCount) {
+                                // 所有动画完成后，更新粒子系统数量
+                                updateParticleSystem2(targetParticleCount);
+                                currentState2 = targetKey;
+                            }
+                        })
+                        .start();
+                }
+                
+                const updateTask = setInterval(() => {
+                    posAttr2.needsUpdate = true;
+                    if (completed >= currentCount) clearInterval(updateTask);
+                }, 16);
+                
+            } else {
+                // 粒子数量相同，直接平滑过渡
+                for (let i = 0; i < currentCount; i++) {
+                    new TWEEN.Tween(posAttr2.array)
+                        .to({
+                            [i * 3]: targetData[i * 3],
+                            [i * 3 + 1]: targetData[i * 3 + 1],
+                            [i * 3 + 2]: targetData[i * 3 + 2]
+                        }, duration)
+                        .easing(easing)
+                        .onComplete(() => {
+                            completed++;
+                            if (completed === currentCount) {
+                                currentState2 = targetKey;
+                            }
+                        })
+                        .start();
+                }
+                
+                const updateTask = setInterval(() => {
+                    posAttr2.needsUpdate = true;
+                    if (completed >= currentCount) clearInterval(updateTask);
+                }, 16);
+            }
+        }
+
+        async function startCountdownSequence() {
+            isTransitioning = true;
+            document.getElementById('hint').style.display = 'none';
+            hideDanmaku();
+            hideStars(); // 隐藏星星系统
+
+            // 重置第二个粒子系统旋转角度为0，确保倒计时开始时是正位
+            if (particles2) {
+                particles2.rotation.set(0, 0, 0);
+            }
+
+            // 开始从左往右的旋转动画
+            let rotationDirection = 1; // 1表示向右，-1表示向左
+            let rotationAngle = 0;
+            const maxAngle = Math.PI / 6; // 30度
+            const rotationSpeed = 0.005;
+
+            // 倒计时过程中的旋转动画
+            const rotationInterval = setInterval(() => {
+                rotationAngle += rotationSpeed * rotationDirection;
+                if (Math.abs(rotationAngle) >= maxAngle) {
+                    rotationDirection *= -1;
+                }
+                if (particles2) {
+                    particles2.rotation.y = rotationAngle;
+                }
+            }, 16);
+
+            for (let i = 3; i >= 1; i--) {
+                // 1. 迅速散开
+                await performMorph2('explode', 400, TWEEN.Easing.Quadratic.Out);
+                
+                // 2. 汇聚成数字
+                await performMorph2('number' + i, 500, TWEEN.Easing.Back.Out);
+                // 停留一会
+                await new Promise(r => setTimeout(r, 800));
+            }
+
+            // 停止旋转动画
+            clearInterval(rotationInterval);
+
+            // 倒计时结束后，第二系统的粒子飞散
+            const posAttr2 = geometry2.attributes.position;
+            const count2 = currentParticleCount2;
+            
+            for (let i = 0; i < count2; i++) {
+                const currentX = posAttr2.array[i * 3];
+                const currentY = posAttr2.array[i * 3 + 1];
+                const currentZ = posAttr2.array[i * 3 + 2];
+                
+                new TWEEN.Tween(posAttr2.array)
+                    .to({
+                        [i * 3]: currentX + (Math.random() - 0.5) * 500,
+                        [i * 3 + 1]: currentY + (Math.random() - 0.5) * 500,
+                        [i * 3 + 2]: currentZ + (Math.random() - 0.5) * 500
+                    }, 2000)
+                    .easing(TWEEN.Easing.Exponential.Out)
+                    .start();
+            }
+            
+            // 显示"再次启航"按钮
+            document.getElementById('start-btn').style.display = 'block';
+            document.getElementById('start-btn').innerText = '再次启航';
+            document.getElementById('hint').style.display = 'none';
+            hideStars(); // 隐藏星星系统
+            showDanmaku();
+            isTransitioning = false;
+        }
+
+        function performMorph(targetKey, duration, easing) {
+            return new Promise(resolve => {
+                const targetData = shapes[targetKey];
+                const targetParticleCount = targetData.length / 3;
+                
+                // 如果目标形态的粒子数量不同，更新粒子系统
+                if (targetParticleCount !== currentParticleCount) {
+                    updateParticleSystem(targetParticleCount);
+                    // 重新生成当前形态的数据
+                    if (targetKey === 'random') generateRandomData();
+                    else if (targetKey === 'cube') generateCubeData();
+                    else if (targetKey === 'gift') generateGiftData();
+                    else if (targetKey === 'model') {
+                        // 模型数据已经在loadModel函数中生成
+                    }
+                    else if (targetKey === 'number3') generateNumberData(3, 'number3');
+                    else if (targetKey === 'number2') generateNumberData(2, 'number2');
+                    else if (targetKey === 'number1') generateNumberData(1, 'number1');
+                    else if (targetKey === 'explode') generateExplodeData();
+                }
+                
+                // 调整粒子大小
+                if (targetKey === 'model') {
+                    material.size = 1.5;
+                } else {
+                    material.size = 3;
+                }
+                
+                const posAttr = geometry.attributes.position;
+                const targetDataUpdated = shapes[targetKey];
+                let completed = 0;
+                const count = currentParticleCount;
+                
+                for (let i = 0; i < count; i++) {
+                    new TWEEN.Tween(posAttr.array)
+                        .to({
+                            [i * 3]: targetDataUpdated[i * 3],
+                            [i * 3 + 1]: targetDataUpdated[i * 3 + 1],
+                            [i * 3 + 2]: targetDataUpdated[i * 3 + 2]
+                        }, duration)
+                        .easing(easing)
+                        .onComplete(() => {
+                            completed++;
+                            if (completed === count) {
+                                currentState = targetKey;
+                                resolve();
+                            }
+                        })
+                        .start();
+                }
+                
+                const updateTask = setInterval(() => {
+                    posAttr.needsUpdate = true;
+                    if (completed >= count) clearInterval(updateTask);
+                }, 16);
+            });
+        }
+
+        function performMorph2(targetKey, duration, easing) {
+            return new Promise(resolve => {
+                const targetData = shapes[targetKey];
+                const targetParticleCount = targetData.length / 3;
+                
+                // 如果目标形态的粒子数量不同，更新粒子系统
+                if (targetParticleCount !== currentParticleCount2) {
+                    updateParticleSystem2(targetParticleCount);
+                    // 重新生成当前形态的数据
+                    if (targetKey === 'random') generateRandomData();
+                    else if (targetKey === 'cube') generateCubeData();
+                    else if (targetKey === 'gift') generateGiftData();
+                    else if (targetKey === 'model') {
+                        // 模型数据已经在loadModel函数中生成
+                    }
+                    else if (targetKey === 'number3') generateNumberData(3, 'number3');
+                    else if (targetKey === 'number2') generateNumberData(2, 'number2');
+                    else if (targetKey === 'number1') generateNumberData(1, 'number1');
+                    else if (targetKey === 'explode') generateExplodeData();
+                }
+                
+                // 调整粒子大小
+                if (targetKey === 'model') {
+                    material2.size = 1.5;
+                } else {
+                    material2.size = 3;
+                }
+                
+                const posAttr2 = geometry2.attributes.position;
+                const targetDataUpdated = shapes[targetKey];
+                
+                let completed = 0;
+                const count = currentParticleCount2;
+                
+                for (let i = 0; i < count; i++) {
+                    new TWEEN.Tween(posAttr2.array)
+                        .to({
+                            [i * 3]: targetDataUpdated[i * 3],
+                            [i * 3 + 1]: targetDataUpdated[i * 3 + 1],
+                            [i * 3 + 2]: targetDataUpdated[i * 3 + 2]
+                        }, duration)
+                        .easing(easing)
+                        .onComplete(() => {
+                            completed++;
+                            if (completed === count) {
+                                currentState2 = targetKey;
+                                resolve();
+                            }
+                        })
+                        .start();
+                }
+                
+                const updateTask = setInterval(() => {
+                    posAttr2.needsUpdate = true;
+                    if (completed >= count) clearInterval(updateTask);
+                }, 16);
+            });
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate(time) {
+            requestAnimationFrame(animate);
+            TWEEN.update(time);
+            // 每100帧打印一次调试信息
+            if (time % 100 === 0) {
+                console.log('Animate function running, current state:', currentState);
+            }
+
+            // RGB呼吸霓虹灯效果
+            const colorArray = geometry.attributes.color.array;
+            for (let i = 0; i < currentParticleCount; i++) {
+                const offset = i * 3;
+                const phase = time * 0.001 + i * 0.1;
+                colorArray[offset] = 0.5 + 0.5 * Math.sin(phase);          // R
+                colorArray[offset + 1] = 0.5 + 0.5 * Math.sin(phase + 2);    // G
+                colorArray[offset + 2] = 0.5 + 0.5 * Math.sin(phase + 4);    // B
+            }
+            geometry.attributes.color.needsUpdate = true;
+            
+            // 第二个粒子系统的RGB呼吸霓虹灯效果
+            if (particles2 && particles2.visible) {
+                const colorArray2 = geometry2.attributes.color.array;
+                for (let i = 0; i < currentParticleCount2; i++) {
+                    const offset = i * 3;
+                    const phase = time * 0.001 + i * 0.1;
+                    colorArray2[offset] = 0.5 + 0.5 * Math.sin(phase);          // R
+                    colorArray2[offset + 1] = 0.5 + 0.5 * Math.sin(phase + 2);    // G
+                    colorArray2[offset + 2] = 0.5 + 0.5 * Math.sin(phase + 4);    // B
+                }
+                geometry2.attributes.color.needsUpdate = true;
+            }
+
+            // 第一个粒子系统始终保持random状态的离散粒子效果
+            const positionArray = geometry.attributes.position.array;
+            for (let i = 0; i < currentParticleCount; i++) {
+                positionArray[i * 3] += Math.sin(time * 0.001 + i) * 0.03;
+                positionArray[i * 3 + 1] += Math.cos(time * 0.0012 + i) * 0.03;
+                positionArray[i * 3 + 2] += Math.sin(time * 0.0013 + i) * 0.03;
+            }
+            geometry.attributes.position.needsUpdate = true;
+            particles.rotation.y += 0.005;
+            particles.rotation.x += 0.002;
+
+            // 第二个粒子系统根据当前状态进行不同的旋转
+            if (particles2 && particles2.visible) {
+                if (currentState2 === 'random') {
+                    const positionArray2 = geometry2.attributes.position.array;
+                    for (let i = 0; i < currentParticleCount2; i++) {
+                        positionArray2[i * 3] += Math.sin(time * 0.001 + i) * 0.03;
+                        positionArray2[i * 3 + 1] += Math.cos(time * 0.0012 + i) * 0.03;
+                        positionArray2[i * 3 + 2] += Math.sin(time * 0.0013 + i) * 0.03;
+                    }
+                    geometry2.attributes.position.needsUpdate = true;
+                    particles2.rotation.y += 0.005;
+                    particles2.rotation.x += 0.002;
+                } else if (currentState2 === 'cube') {
+                    particles2.rotation.y += 0.005;
+                    particles2.rotation.x += 0.002;
+                } else if (currentState2 === 'gift') {
+                    particles2.rotation.y += 0.005;
+                    particles2.rotation.x += 0.002;
+                } else if (currentState2 === 'model') {
+                    particles2.rotation.y += 0.005;
+                } else if (currentState2.includes('number')) {
+                    // 数字显示时，允许通过外部设置的旋转角度
+                }
+            }
+
+            // gift_box模型跟随鼠标旋转
+            if (particles2 && particles2.visible) {
+                targetRotationY = mouseX * Math.PI;
+                targetRotationX = -mouseY * Math.PI * 0.5;
+                particles2.rotation.y += (targetRotationY - particles2.rotation.y) * 0.05;
+                particles2.rotation.x += (targetRotationX - particles2.rotation.x) * 0.05;
+                geometry2.attributes.position.needsUpdate = true;
+            }
+
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>
