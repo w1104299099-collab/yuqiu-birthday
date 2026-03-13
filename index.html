@@ -135,11 +135,11 @@
 
 .bubble-particle {
             position: absolute;
-            width: 2px;
-            height: 2px;
+            width: 4px;
+            height: 4px;
             border-radius: 50%;
-            background: radial-gradient(circle, rgba(255,255,255,1) 0%, rgba(255,215,0,1) 50%, rgba(255,100,0,0.6) 100%);
-            box-shadow: 0 0 6px rgba(255, 215, 0, 1);
+            background: radial-gradient(circle, rgba(255,255,255,1) 0%, rgba(255,255,200,1) 50%, rgba(255,215,0,0.8) 100%);
+            box-shadow: 0 0 10px rgba(255, 255, 255, 1), 0 0 20px rgba(255, 215, 0, 0.9);
             pointer-events: none;
         }
 
@@ -173,10 +173,23 @@
         let isTransitioning = false;
         let positions, colors;
         let currentParticleCount = BASE_PARTICLE_COUNT;
-        let mouseX = 0;
+let mouseX = 0;
         let mouseY = 0;
         let targetRotationX = 0;
         let targetRotationY = 0;
+
+        const mouseRotationConfig = {
+            'model': { sensitivityX: Math.PI, sensitivityY: Math.PI * 0.1, lerpFactor: 0.05 },
+            'giftBox': { sensitivityX: Math.PI, sensitivityY: Math.PI * 0.5, lerpFactor: 0.05 },
+            'random': { sensitivityX: Math.PI, sensitivityY: Math.PI * 0.5, lerpFactor: 0.05 },
+            'cube': { sensitivityX: Math.PI, sensitivityY: Math.PI * 0.5, lerpFactor: 0.05 },
+            'gift': { sensitivityX: Math.PI, sensitivityY: Math.PI * 0.5, lerpFactor: 0.05 },
+            'number3': { sensitivityX: Math.PI, sensitivityY: Math.PI * 0.5, lerpFactor: 0.05 },
+            'number2': { sensitivityX: Math.PI, sensitivityY: Math.PI * 0.5, lerpFactor: 0.05 },
+            'number1': { sensitivityX: Math.PI, sensitivityY: Math.PI * 0.5, lerpFactor: 0.05 },
+            'explode': { sensitivityX: Math.PI, sensitivityY: Math.PI * 0.5, lerpFactor: 0.05 },
+            'default': { sensitivityX: Math.PI, sensitivityY: Math.PI * 0.5, lerpFactor: 0.05 }
+        };
 
         const shapes = {
             random: null,
@@ -419,11 +432,11 @@ function createStarItem(file) {
             };
             
             // 创建80个细小粒子组成泡泡
-            for (let i = 0; i < 80; i++) {
+            for (let i = 0; i < 100; i++) {
                 const particle = document.createElement('div');
                 particle.className = 'bubble-particle';
                 
-                const radius = 18 + Math.random() * 5.5;
+                const radius = 22 + Math.random() * 8;
                 const theta = Math.random() * Math.PI * 2;
                 const phi = Math.random() * Math.PI;
                 
@@ -573,9 +586,9 @@ function updateStars() {
                     particles.forEach(particle => {
                         particle.style.opacity = opacity;
                         if (data.paused) {
-                            particle.style.boxShadow = '0 0 10px rgba(255, 215, 0, 1)';
+                            particle.style.boxShadow = '0 0 15px rgba(255, 255, 255, 1), 0 0 25px rgba(255, 215, 0, 1)';
                         } else {
-                            particle.style.boxShadow = `0 0 ${6 * opacity}px rgba(255, 215, 0, ${opacity})`;
+                            particle.style.boxShadow = `0 0 ${12 * opacity}px rgba(255, 255, 255, ${opacity}), 0 0 ${20 * opacity}px rgba(255, 215, 0, ${opacity * 0.9})`;
                         }
                     });
                 }
@@ -879,10 +892,11 @@ function updateStars() {
             scene.add(particles2);
             console.log('Gift box particles created and added to scene');
             
-            // 设置第二个粒子系统的初始状态
+// 设置第二个粒子系统的初始状态（但设置 transitioning 状态防止在聚拢过程中点击）
+            isTransitioning = true;
             currentState2 = 'giftBox';
             currentParticleCount2 = giftBoxParticleCount;
-            
+
             // 粒子聚拢动画
             const posAttr2 = geometry2.attributes.position;
             let completed = 0;
@@ -896,10 +910,11 @@ function updateStars() {
                         [i * 3 + 2]: shapes.giftBox[i * 3 + 2]
                     }, duration)
                     .easing(TWEEN.Easing.Exponential.InOut)
-                    .onComplete(() => {
+.onComplete(() => {
                         completed++;
                         if (completed === giftBoxParticleCount) {
                             currentState2 = 'giftBox';
+                            isTransitioning = false; // 聚拢完成，允许用户操作
                         }
                     })
                     .start();
@@ -1304,16 +1319,17 @@ function updateStars() {
             
             const btnText = document.getElementById('start-btn').innerText;
             
-            if (btnText === '再次启航') {
+if (btnText === '再次启航') {
                 hideDanmaku();
                 hideStars(); // 隐藏星星系统
                 // 再次启航：第二系统的粒子聚拢回归成礼物盒
+                isTransitioning = true; // 标记正在过渡，防止重复点击
                 const giftBoxParticleCount = shapes.giftBox.length / 3;
                 updateParticleSystem2(giftBoxParticleCount);
-                
+
                 // 设置粒子大小为原始状态
                 material2.size = 1.5;
-                
+
                 // 将第二个粒子系统聚拢成gift_box状态
                 const posAttr2 = geometry2.attributes.position;
                 for (let i = 0; i < giftBoxParticleCount; i++) {
@@ -1328,8 +1344,9 @@ function updateStars() {
                             [i * 3 + 2]: shapes.giftBox[i * 3 + 2]
                         }, 2000)
                         .easing(TWEEN.Easing.Exponential.InOut)
-                        .onComplete(() => {
+.onComplete(() => {
                             currentState2 = 'giftBox';
+                            isTransitioning = false; // 聚拢完成，允许用户操作
                             // 再次显现"启航"按钮
                             document.getElementById('start-btn').style.display = 'none';
                             document.getElementById('start-btn').innerText = '启航';
@@ -1902,12 +1919,13 @@ function updateStars() {
                 }
             }
 
-            // gift_box模型跟随鼠标旋转
+// 模型跟随鼠标旋转（根据配置表参数）
             if (particles2 && particles2.visible) {
-                targetRotationY = mouseX * Math.PI;
-                targetRotationX = -mouseY * Math.PI * 0.5;
-                particles2.rotation.y += (targetRotationY - particles2.rotation.y) * 0.05;
-                particles2.rotation.x += (targetRotationX - particles2.rotation.x) * 0.05;
+                const config = mouseRotationConfig[currentState2] || mouseRotationConfig.default;
+                targetRotationY = mouseX * config.sensitivityX;
+                targetRotationX = -mouseY * config.sensitivityY;
+                particles2.rotation.y += (targetRotationY - particles2.rotation.y) * config.lerpFactor;
+                particles2.rotation.x += (targetRotationX - particles2.rotation.x) * config.lerpFactor;
                 geometry2.attributes.position.needsUpdate = true;
             }
 
