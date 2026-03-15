@@ -555,6 +555,9 @@ function createStarItem(file) {
         function playStarAudio(file, star) {
             if (file.played) return;
             
+            // 设置标志，表示泡泡正在播放飞散动画
+            star._starData.playing = true;
+            
             // 点击泡泡后，粒子向四面八方飞散
             const particles = star.querySelectorAll('.bubble-particle');
             particles.forEach(particle => {
@@ -618,6 +621,9 @@ function updateStars() {
                 if (!star._starData) return;
                 
                 const data = star._starData;
+                
+                // 如果泡泡正在播放飞散动画，跳过更新
+                if (data.playing) return;
                 
                 // 悬停时直接使用缓存值
                 if (data.paused && data.useCached) {
@@ -923,9 +929,9 @@ function updateStars() {
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
             camera.position.z = 80; // 拉近相机，使粒子更清晰可见
 
-            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, powerPreference: "high-performance" });
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
             document.body.appendChild(renderer.domElement);
 
             const sprite = createParticleTexture();
@@ -934,9 +940,11 @@ function updateStars() {
                 map: sprite,
                 blending: THREE.AdditiveBlending,
                 depthTest: false,
+                depthWrite: false,
                 transparent: true,
                 vertexColors: true,
-                opacity: 0.8
+                opacity: 0.8,
+                sizeAttenuation: true
             });
 
             // 初始化基础粒子数量
@@ -1050,9 +1058,11 @@ function updateStars() {
                 map: sprite,
                 blending: THREE.AdditiveBlending,
                 depthTest: false,
+                depthWrite: false,
                 transparent: true,
                 vertexColors: true,
-                opacity: 0.8
+                opacity: 0.8,
+                sizeAttenuation: true
             });
             
             particles2 = new THREE.Points(geometry2, material2);

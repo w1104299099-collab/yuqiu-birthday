@@ -1,0 +1,1093 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Cyber Landscape - Star System V2</title>
+    
+    <script src="js/three.min.js"></script>
+        <!-- 替代 CDN 链接
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/examples/js/geometries/TextGeometry.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/examples/js/loaders/FontLoader.js"></script> -->
+
+    <style>
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background-color: #000000; 
+            font-family: 'Segoe UI', sans-serif; 
+            user-select: none; 
+            touch-action: none; 
+        }
+
+        #viewport {
+            position: absolute;
+            top: 0%;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #000510; 
+            overflow: hidden;
+            box-shadow: 0 0 50px rgba(0,0,0,1); 
+        }
+
+        canvas { display: block; }
+
+        #ui-layer {
+            position: absolute; top: 20px; left: 20px; pointer-events: none; z-index: 10;
+        }
+        .panel {
+            background: rgba(0, 5, 10, 0.85);
+            backdrop-filter: blur(8px);
+            padding: 20px; border-radius: 4px; border: 1px solid rgba(255, 204, 0, 0.5);
+            color: #eee; width: 280px; pointer-events: auto;
+            box-shadow: 0 0 25px rgba(255, 204, 0, 0.15);
+            transition: opacity 0.6s ease, transform 0.6s ease;
+            opacity: 1; transform: translateY(0);
+            cursor: default; 
+        }
+
+        .panel.hidden-ui { opacity: 0; pointer-events: none; transform: translateY(-20px); }
+
+        h1 {
+            margin: 0 0 15px 0; font-size: 16px; letter-spacing: 3px; font-weight: 800;
+            text-transform: uppercase; color: #ffcc00; 
+            text-align: center; border-bottom: 1px solid rgba(255, 204, 0, 0.3); padding-bottom: 10px;
+            text-shadow: 0 0 15px rgba(255, 204, 0, 0.8);
+        }
+        .status-text { font-size: 12px; color: #ffeb99; display: block; text-align: center; margin-bottom: 15px; min-height: 1.5em; text-shadow: 0 0 5px rgba(255,200,0,0.5);}
+        
+        .btn-group { display: flex; flex-direction: column; gap: 10px; }
+        
+        button, .file-label {
+            display: block; width: 100%; box-sizing: border-box;
+            padding: 12px; background: rgba(255, 204, 0, 0.05);
+            border: 1px solid #ffcc00; color: #ffcc00;
+            cursor: pointer; font-size: 12px; transition: 0.3s;
+            text-transform: uppercase; letter-spacing: 1px;
+            text-align: center; font-weight: bold;
+        }
+        button:hover, .file-label:hover { 
+            background: rgba(255, 204, 0, 0.2); 
+            box-shadow: 0 0 20px rgba(255, 204, 0, 0.5); transform: scale(1.02); 
+        }
+        button:disabled { border-color: #443300; color: #665500; cursor: not-allowed; pointer-events: none; box-shadow: none; transform: none; }
+
+        input[type="file"] { display: none; }
+
+        .hint { font-size: 10px; color: #887744; margin-top: 15px; text-align: center; line-height: 1.4; }
+
+        /* HUD Spectrum */
+        #hud-spectrum {
+            position: absolute; bottom: 0; right: 20px; width: 320px; height: 100px;
+            background: linear-gradient(180deg, transparent 0%, rgba(0, 10, 20, 0.6) 100%);
+            border-bottom: 2px solid #ffcc00; pointer-events: none; z-index: 20;
+        }
+        
+        #touch-indicator {
+            display: none !important; 
+            position: absolute; top: 50%; left: 50%;
+            width: 40px; height: 40px; border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%; transform: translate(-50%, -50%) scale(0);
+            pointer-events: none; transition: transform 0.1s;
+            box-shadow: 0 0 10px rgba(0, 255, 255, 0.5); z-index: 5;
+        }
+
+        .cine-line {
+            position: absolute; left: 0; width: 100%; height: 1px;
+            background: rgba(255, 204, 0, 0.3); z-index: 50; pointer-events: none;
+        }
+        #line-top { top: 0; }
+        #line-bottom { bottom: 0; }
+        
+        #controls {
+            position: absolute; top: 20px; left: 20px; z-index: 10;
+            background: rgba(0, 5, 10, 0.85);
+            backdrop-filter: blur(8px);
+            padding: 20px; border-radius: 4px; border: 1px solid rgba(255, 204, 0, 0.5);
+            color: #eee; width: 280px;
+        }
+
+        #controls h1 { margin: 0 0 15px 0; font-size: 16px; color: #ffcc00; text-align: center; }
+        #controls label { display: block; margin: 10px 0 5px; font-size: 12px; color: #ffeb99; }
+        #controls input, #controls select { width: 100%; padding: 8px; margin-bottom: 10px; background: rgba(255, 204, 0, 0.05); border: 1px solid #ffcc00; color: #ffcc00; }
+        #controls button { width: 100%; padding: 10px; background: rgba(255, 204, 0, 0.1); border: 1px solid #ffcc00; color: #ffcc00; cursor: pointer; margin-top: 10px; }
+        #controls button:hover { background: rgba(255, 204, 0, 0.2); }
+    </style>
+</head>
+<body>
+
+    <div id="viewport">
+        <div class="cine-line" id="line-top"></div>
+        <div class="cine-line" id="line-bottom"></div>
+    </div>
+    
+    <div id="controls" style="display: none;">
+        <h1>3D歌词系统测试</h1>
+        <label for="lyricInput">歌词文本:</label>
+        <input type="text" id="lyricInput" value="我们一个像夏天一个像秋天" placeholder="输入歌词">
+        <label for="xPos">X位置:</label>
+        <input type="number" id="xPos" value="0" step="0.1">
+        <label for="yPos">Y位置:</label>
+        <input type="number" id="yPos" value="-30" step="0.1">
+        <label for="zPos">Z位置:</label>
+        <input type="number" id="zPos" value="-300" step="0.1">
+        <label for="letterSpacing">字母间距:</label>
+        <input type="number" id="letterSpacing" value="15" step="0.1">
+        <label for="letterSize">字母大小:</label>
+        <input type="number" id="letterSize" value="3" step="0.1">
+        <button onclick="updateLyric()">更新歌词</button>
+    </div>
+
+    <script>
+        // ================= 配置参数 =================
+        const CONFIG = {
+            particleCount: 1300000, 
+            rangeX: 200,           
+            rangeZ: 200,           
+            lineCount: 600,        
+            colorRiver: new THREE.Color('#ffd700'), // 金色河流
+            
+            // 金色系色调
+            colorMtBase: new THREE.Color('#2a1a00'), // 深金色
+            colorMtTop: new THREE.Color('#ffd700'), // 金色山顶
+            
+            speed: 18.0            
+        };
+
+        const viewport = document.getElementById('viewport');
+
+        // ================= 1. 音频分析系统 =================
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const audioElement = new Audio();
+        audioElement.crossOrigin = "anonymous"; 
+        audioElement.loop = true; 
+        
+        let analyser = null;
+        let dataArray = null;
+        let source = null;
+        let isPlaying = false;
+
+       function setupAudio() {
+            if (source) return;
+            analyser = audioCtx.createAnalyser();
+            analyser.fftSize = 1024;
+            analyser.smoothingTimeConstant = 0.6; 
+            
+            source = audioCtx.createMediaElementSource(audioElement);
+            source.connect(analyser);
+            analyser.connect(audioCtx.destination); 
+            dataArray = new Uint8Array(analyser.frequencyBinCount);
+        }
+
+        // 动力信号：低频主导
+        function getBassSignal() {
+            if (!analyser || !isPlaying) return 0.1;
+            
+            let bassSum = 0;
+            for (let i = 0; i < 8; i++) {
+                bassSum += dataArray[i];
+            }
+            let bassEnergy = (bassSum / 8) / 255.0; 
+            bassEnergy = Math.pow(bassEnergy, 3) * 12.0; 
+
+            let midSum = 0;
+            for(let i=10; i<60; i++) midSum += dataArray[i];
+            let midEnergy = (midSum / 50) / 255.0;
+
+            return bassEnergy + midEnergy * 1.5;
+        }
+
+        // 歌词数据
+        let lyrics = [];
+        let currentLyricIndex = 0;
+        
+        // 解析LRC歌词文件
+        function parseLRC(lrcContent) {
+            const lines = lrcContent.split('\n');
+            const lyricArray = [];
+            
+            console.log('解析LRC歌词，共', lines.length, '行');
+            
+            lines.forEach((line, index) => {
+                // 支持多种时间格式：[mm:ss], [mm:ss.xx], [mm:ss.xxxx]
+                const timeMatch = line.match(/\[(\d+):(\d+(?:\.\d+)?)\]/);
+                console.log(`第${index}行:`, line);
+                
+                if (timeMatch) {
+                    try {
+                        const minutes = parseInt(timeMatch[1]);
+                        const seconds = parseFloat(timeMatch[2]);
+                        const time = minutes * 60 + seconds;
+                        const text = line.replace(/\[(\d+):(\d+(?:\.\d+)?)\]/g, '').trim();
+                        console.log(`解析成功: 时间=${time}, 文本=${text}`);
+                        if (text) {
+                            lyricArray.push({ time, text });
+                        }
+                    } catch (e) {
+                        console.warn(`解析第${index}行失败:`, e.message);
+                    }
+                } else {
+                    console.log(`第${index}行无时间标签`);
+                }
+            });
+            
+            // 按时间排序
+            lyricArray.sort((a, b) => a.time - b.time);
+            console.log('解析完成，共', lyricArray.length, '句歌词');
+            return lyricArray;
+        }
+        
+        // 解析SRT歌词文件
+        function parseSRT(srtContent) {
+            const lines = srtContent.split('\n');
+            const lyricArray = [];
+            let currentTime = 0;
+            let currentText = '';
+            
+            lines.forEach(line => {
+                // 匹配时间范围：00:00:00,000 --> 00:00:00,000
+                const timeMatch = line.match(/(\d+):(\d+):(\d+),(\d+) -->/);
+                if (timeMatch) {
+                    // 保存上一条歌词
+                    if (currentText) {
+                        lyricArray.push({ time: currentTime, text: currentText.trim() });
+                        currentText = '';
+                    }
+                    // 解析开始时间
+                    const hours = parseInt(timeMatch[1]);
+                    const minutes = parseInt(timeMatch[2]);
+                    const seconds = parseInt(timeMatch[3]);
+                    const milliseconds = parseInt(timeMatch[4]);
+                    currentTime = hours * 3600 + minutes * 60 + seconds + milliseconds / 1000;
+                } else if (line.trim() && !/^\d+$/.test(line)) {
+                    // 累积文本（排除数字序号）
+                    currentText += line + ' ';
+                }
+            });
+            
+            // 保存最后一条歌词
+            if (currentText) {
+                lyricArray.push({ time: currentTime, text: currentText.trim() });
+            }
+            
+            // 按时间排序
+            lyricArray.sort((a, b) => a.time - b.time);
+            return lyricArray;
+        }
+        
+        // 解析TXT歌词文件（支持带时间标签的格式）
+        function parseTXT(txtContent) {
+            const lines = txtContent.split('\n');
+            const lyricArray = [];
+            let time = 0;
+            const lineInterval = 3; // 每行显示3秒
+            
+            lines.forEach(line => {
+                const trimmedLine = line.trim();
+                if (trimmedLine) {
+                    // 检查是否有时间标签，格式类似 [mm:ss] 或 [mm:ss.xx]
+                    const timeMatch = trimmedLine.match(/\[(\d+):(\d+(?:\.\d+)?)\]/);
+                    if (timeMatch) {
+                        // 解析时间标签
+                        const minutes = parseInt(timeMatch[1]);
+                        const seconds = parseFloat(timeMatch[2]);
+                        time = minutes * 60 + seconds;
+                        const text = trimmedLine.replace(/\[(\d+):(\d+(?:\.\d+)?)\]/g, '').trim();
+                        if (text) {
+                            lyricArray.push({ time, text });
+                        }
+                    } else {
+                        // 没有时间标签，使用累加时间
+                        lyricArray.push({ time, text: trimmedLine });
+                        time += lineInterval;
+                    }
+                }
+            });
+            
+            // 按时间排序
+            lyricArray.sort((a, b) => a.time - b.time);
+            return lyricArray;
+        }
+        
+        // 加载歌词文件
+        function loadLyrics(musicUrl) {
+            // 尝试加载不同格式的歌词文件
+            const baseName = 'music/秋天夏天原曲';
+            const extensions = ['lrc', 'srt', 'txt'];
+            
+            // 按优先级尝试加载
+            const loadNext = (index) => {
+                if (index >= extensions.length) {
+                    console.warn('所有格式的歌词文件都加载失败');
+                    lyrics = [];
+                    currentLyricIndex = 0;
+                    return Promise.resolve();
+                }
+                
+                const ext = extensions[index];
+                const url = `${baseName}.${ext}`;
+                
+                console.log(`尝试加载歌词文件: ${url}`);
+                
+                return fetch(url)
+                    .then(response => {
+                        console.log(`响应状态: ${response.status}`);
+                        if (!response.ok) {
+                            throw new Error(`${ext}文件不存在`);
+                        }
+                        // 使用ArrayBuffer获取原始数据，然后尝试不同编码
+                        return response.arrayBuffer();
+                    })
+                    .then(buffer => {
+                        console.log(`获取到文件数据，大小: ${buffer.byteLength} 字节`);
+                        // 尝试多种编码
+                        const encodings = ['utf-8', 'gbk', 'gb2312'];
+                        let text = '';
+                        let success = false;
+                        
+                        for (const encoding of encodings) {
+                            try {
+                                if (encoding === 'utf-8') {
+                                    text = new TextDecoder('utf-8').decode(buffer);
+                                } else if (encoding === 'gbk' || encoding === 'gb2312') {
+                                    // 对于GBK和GB2312，使用简化的处理
+                                    text = new TextDecoder('utf-8', { fatal: false }).decode(buffer);
+                                }
+                                console.log(`尝试${encoding}编码结果:`, text.substring(0, 50) + '...');
+                                // 检查是否有乱码（简单检测）
+                                if (text.includes('秋天') || text.includes('夏天') || text.includes('像') || text.includes('朋友')) {
+                                    console.log(`使用${encoding}编码成功`);
+                                    success = true;
+                                    break;
+                                }
+                            } catch (e) {
+                                console.warn(`尝试${encoding}编码失败:`, e.message);
+                            }
+                        }
+                        
+                        if (!success) {
+                            throw new Error('无法正确解码歌词文件');
+                        }
+                        
+                        console.log(`加载${ext}格式歌词成功`);
+                        console.log('歌词内容:', text.substring(0, 100) + '...'); // 只显示前100个字符
+                        
+                        // 根据文件扩展名选择解析函数
+                        switch (ext) {
+                            case 'lrc':
+                                lyrics = parseLRC(text);
+                                break;
+                            case 'srt':
+                                lyrics = parseSRT(text);
+                                break;
+                            case 'txt':
+                                lyrics = parseTXT(text);
+                                break;
+                        }
+                        currentLyricIndex = 0;
+                        console.log('歌词加载成功:', lyrics.length, '句');
+                        console.log('前5句歌词:', lyrics.slice(0, 5));
+                    })
+                    .catch(err => {
+                        console.warn(`加载${ext}格式歌词失败:`, err.message);
+                        // 尝试加载下一种格式
+                        return loadNext(index + 1);
+                    });
+            };
+            
+            return loadNext(0);
+        }
+        
+        // 自动播放音乐
+        function autoPlayMusic() {
+            const musicUrl = 'music/秋天夏天原曲.wav';
+            
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            
+            // 加载歌词
+            loadLyrics(musicUrl).then(() => {
+                audioElement.src = musicUrl;
+                setupAudio();
+                
+                audioElement.play().then(() => {
+                    isPlaying = true;
+                    // 音乐开始播放，触发歌词淡入
+                    isFadingIn = true;
+                    isFadingOut = false;
+                }).catch(err => {
+                    console.error('播放失败:', err);
+                });
+                
+                // 添加歌曲结束事件监听器
+                audioElement.addEventListener('ended', function() {
+                    // 歌曲结束，触发淡出
+                    console.log('歌曲结束，触发淡出');
+                    isFadingOut = true;
+                    isFadingIn = false;
+                });
+                
+                // 添加歌曲时间更新事件监听器，用于检测循环播放
+                audioElement.addEventListener('timeupdate', function() {
+                    // 检测歌曲是否重新开始（循环播放）
+                    if (this.currentTime < 1 && !isFadingIn && !isFadingOut) {
+                        // 歌曲重新开始，触发淡入
+                        isFadingIn = true;
+                        isFadingOut = false;
+                    }
+                });
+            });
+        }
+
+        // 修复AudioContext启动问题：需要用户手势
+        function resumeAudioContext() {
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            // 自动播放音乐
+            autoPlayMusic();
+            // 移除监听器，避免重复触发
+            document.removeEventListener('click', resumeAudioContext);
+            document.removeEventListener('touchstart', resumeAudioContext);
+        }
+
+        // 添加用户手势监听器
+        document.addEventListener('click', resumeAudioContext);
+        document.addEventListener('touchstart', resumeAudioContext);
+
+
+
+        // ================= 3. Three.js 场景构建 =================
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color('#000000'); 
+        scene.fog = new THREE.FogExp2(0x000000, 0.015); 
+
+        const camera = new THREE.PerspectiveCamera(60, viewport.clientWidth / viewport.clientHeight, 0.1, 1000);
+        camera.position.set(0, 12, 30); 
+        camera.lookAt(0, 2, -50);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
+        renderer.setSize(viewport.clientWidth, viewport.clientHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+        viewport.appendChild(renderer.domElement);
+
+
+
+        // ================= 优化后的星星系统 (Star System V2) =================
+        const starGeo = new THREE.BufferGeometry();
+        const starCount = 15000; 
+        const starPos = []; 
+        const starData = []; // 存放: [基础大小, 闪烁速度, 闪烁偏移]
+        const starColors = [];
+
+        const color1 = new THREE.Color('#ffd700'); // 金色
+        const color2 = new THREE.Color('#ffaa00'); // 橙金色
+        const color3 = new THREE.Color('#ff8800'); // 深金色
+
+        for(let i=0; i<starCount; i++) {
+            // 位置分布
+            const x = (Math.random() - 0.5) * 1600;
+            const y = Math.random() * 280 - 5; 
+            const z = -Math.random() * 400 - 60;
+            starPos.push(x, y, z);
+            
+            // 颜色随机
+            const rand = Math.random();
+            let c = color1;
+            if(rand > 0.9) c = color3; 
+            else if(rand > 0.7) c = color2; 
+            
+            starColors.push(c.r, c.g, c.b);
+
+            // 大小与闪烁参数
+            const sizeBase = Math.random() * 2.0 + 1.0; 
+            const isMegaStar = Math.random() < 0.05; 
+            
+            starData.push(
+                isMegaStar ? sizeBase * 3.5 : sizeBase, 
+                Math.random() * 3.0 + 0.5, 
+                Math.random() * 100.0
+            );
+        }
+        
+        starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3));
+        starGeo.setAttribute('color', new THREE.Float32BufferAttribute(starColors, 3));
+        starGeo.setAttribute('aData', new THREE.Float32BufferAttribute(starData, 3));
+
+        const starMat = new THREE.ShaderMaterial({
+            uniforms: { uTime: { value: 0 } },
+            vertexShader: `
+                uniform float uTime; 
+                attribute vec3 aData; // x: size, y: speed, z: offset
+                attribute vec3 color;
+                varying vec3 vColor;
+                varying float vAlpha;
+                
+                void main() {
+                    vColor = color;
+                    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                    gl_Position = projectionMatrix * mvPosition;
+                    
+                    // 距离透视优化
+                    float distSize = aData.x * (300.0 / -mvPosition.z);
+                    gl_PointSize = clamp(distSize, 2.0, 15.0);
+
+                    float blink = sin(uTime * aData.y + aData.z);
+                    float twinkle = pow(0.5 + 0.5 * blink, 3.0); 
+                    vAlpha = 0.4 + 0.6 * twinkle; 
+                }
+            `,
+            fragmentShader: `
+                varying vec3 vColor;
+                varying float vAlpha;
+                
+                void main() {
+                    vec2 uv = gl_PointCoord.xy - 0.5; 
+                    float d = length(uv); 
+                    if (d > 0.5) discard; 
+
+                    // 光晕核心优化
+                    float glow = 1.0 - (d * 2.0);
+                    glow = pow(glow, 1.5); 
+                    vec3 finalColor = mix(vColor, vec3(1.0), glow * 0.5);
+
+                    gl_FragColor = vec4(finalColor, vAlpha * glow);
+                }
+            `,
+            transparent: true, 
+            blending: THREE.AdditiveBlending, 
+            depthWrite: false
+        });
+
+        const starSystem = new THREE.Points(starGeo, starMat);
+        scene.add(starSystem);
+
+        // ================= 3D歌词系统 =================
+        let lyricLetters = [];
+        let currentLyric = "";
+        let letterSpacing = 15;
+        let letterSize = 3;
+        let lyricOpacity = 0; // 歌词透明度
+        let isFadingIn = false; // 是否正在淡入
+        let isFadingOut = false; // 是否正在淡出
+        let firstLyricShown = false; // 是否已经显示过第一句歌词
+        
+        // 创建3D歌词
+        function create3DLyric(text, position) {
+            // 如果没有文本，不做任何操作，保持现有歌词
+            if (!text) return;
+            
+            // 计算实际字符数量（排除空格）
+            const actualChars = text.replace(/\s/g, '');
+            const charCount = actualChars.length;
+            
+            if (charCount === 0) return;
+            
+            // 先创建新的字母
+            const newLetters = [];
+            const startX = position.x - (charCount * letterSpacing) / 2;
+            let charIndex = 0;
+            
+            for (let i = 0; i < text.length; i++) {
+                const char = text[i];
+                if (char === ' ') continue;
+                
+                // 创建字母的Canvas
+                const charCanvas = document.createElement('canvas');
+                charCanvas.width = 100;
+                charCanvas.height = 100;
+                const charCtx = charCanvas.getContext('2d');
+                
+                // 绘制字母
+                charCtx.clearRect(0, 0, charCanvas.width, charCanvas.height);
+                
+                // 确保背景完全透明
+                charCtx.fillStyle = 'rgba(0, 0, 0, 0)';
+                charCtx.fillRect(0, 0, charCanvas.width, charCanvas.height);
+                
+                // 绘制文字光晕
+                charCtx.font = '80px Arial';
+                charCtx.fillStyle = '#ffd700';
+                charCtx.textAlign = 'center';
+                charCtx.textBaseline = 'middle';
+                charCtx.shadowColor = '#ffd700';
+                charCtx.shadowBlur = 20;
+                charCtx.fillText(char, charCanvas.width / 2, charCanvas.height / 2);
+                
+                // 绘制主文字
+                charCtx.font = '80px Arial';
+                charCtx.fillStyle = '#ffffff';
+                charCtx.textAlign = 'center';
+                charCtx.textBaseline = 'middle';
+                charCtx.shadowColor = '#ffd700';
+                charCtx.shadowBlur = 20;
+                charCtx.fillText(char, charCanvas.width / 2, charCanvas.height / 2);
+                
+                // 创建纹理和材质
+                const charTexture = new THREE.CanvasTexture(charCanvas);
+                charTexture.needsUpdate = true;
+                
+                const charMaterial = new THREE.MeshBasicMaterial({
+                    map: charTexture,
+                    transparent: true,
+                    blending: THREE.AdditiveBlending,
+                    side: THREE.DoubleSide,
+                    fog: false,
+                    opacity: 0 // 初始透明度为0，用于淡入效果
+                });
+                
+                // 创建平面几何体
+                const charGeometry = new THREE.PlaneGeometry(letterSize, letterSize);
+                const charMesh = new THREE.Mesh(charGeometry, charMaterial);
+                
+                // 计算距离缩放因子，确保字体在不同距离下保持一致大小
+                const distance = Math.abs(position.z);
+                const scaleFactor = 1 + (distance / 100); // 距离越远，缩放越大
+                charMesh.scale.set(scaleFactor, scaleFactor, 1);
+                
+                // 设置位置 - 直接设置到目标位置，避免分散效果
+                const targetX = startX + charIndex * letterSpacing;
+                charMesh.position.set(
+                    targetX,
+                    position.y,
+                    position.z
+                );
+                
+                // 添加到场景
+                scene.add(charMesh);
+                newLetters.push(charMesh);
+                charIndex++;
+            }
+            
+            // 清除旧的歌词
+            lyricLetters.forEach(letter => scene.remove(letter));
+            lyricLetters = newLetters;
+        }
+        
+        // 更新3D歌词
+        function update3DLyric() {
+            const x = parseFloat(document.getElementById('xPos').value) || 0;
+            const y = parseFloat(document.getElementById('yPos').value) || -30;
+            const z = parseFloat(document.getElementById('zPos').value) || -300;
+            
+            // 创建固定位置的歌词，不应用移动偏移
+            // 移动偏移将在动画循环中应用
+            const position = new THREE.Vector3(x, y, z);
+            create3DLyric(currentLyric, position);
+            
+            // 只有第一句歌词有淡入效果
+            if (!firstLyricShown) {
+                // 触发淡入效果
+                lyricOpacity = 0; // 重置透明度为0
+                isFadingIn = true;
+                isFadingOut = false;
+                firstLyricShown = true; // 标记第一句歌词已显示
+            } else {
+                // 其他歌词直接显示
+                lyricOpacity = 1;
+                isFadingIn = false;
+                isFadingOut = false;
+                // 直接设置所有字母的透明度为1
+                lyricLetters.forEach(letter => {
+                    if (letter) {
+                        letter.material.opacity = 1;
+                    }
+                });
+            }
+        }
+        
+        // 更新歌词文本
+        function updateLyric() {
+            currentLyric = document.getElementById('lyricInput').value || '歌词加载中...';
+            letterSpacing = parseFloat(document.getElementById('letterSpacing').value) || 15;
+            letterSize = parseFloat(document.getElementById('letterSize').value) || 3;
+            update3DLyric();
+        }
+
+        // Terrain Particles
+        const geometry = new THREE.BufferGeometry();
+        const positions = []; const randoms = []; const lineIndices = []; 
+        const pointsPerLine = Math.floor(CONFIG.particleCount / CONFIG.lineCount);
+        for (let i = 0; i < CONFIG.lineCount; i++) {
+            const z = (i / CONFIG.lineCount - 0.5) * CONFIG.rangeZ;
+            for (let j = 0; j < pointsPerLine; j++) {
+                const x = (j / pointsPerLine - 0.5) * CONFIG.rangeX;
+                positions.push(x, 0, z);
+                randoms.push(Math.random(), Math.random(), Math.random());
+                lineIndices.push(i / CONFIG.lineCount);
+            }
+        }
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        geometry.setAttribute('aRandom', new THREE.Float32BufferAttribute(randoms, 3));
+        geometry.setAttribute('aLine', new THREE.Float32BufferAttribute(lineIndices, 1));
+
+        const vertexShader = `
+            uniform float uTime; uniform float uScale; uniform float uSpeed;
+            attribute vec3 aRandom; attribute float aLine;
+            varying float vType; varying float vHeight; varying float vIntensity; varying float vDist;
+            varying float vLine; varying float vDistToRiver;
+            vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+            vec2 mod289(vec2 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+            vec3 permute(vec3 x) { return mod289(((x*34.0)+1.0)*x); }
+            float snoise(vec2 v) {
+                const vec4 C = vec4(0.211324865405187, 0.366025403784439, -0.577350269189626, 0.024390243902439);
+                vec2 i  = floor(v + dot(v, C.yy) ); vec2 x0 = v - i + dot(i, C.xx);
+                vec2 i1; i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+                vec4 x12 = x0.xyxy + C.xxzz; x12.xy -= i1; i = mod289(i);
+                vec3 p = permute( permute( i.y + vec3(0.0, i1.y, 1.0 )) + i.x + vec3(0.0, i1.x, 1.0 ));
+                vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy), dot(x12.zw,x12.zw)), 0.0);
+                m = m*m ; m = m*m ; vec3 x = 2.0 * fract(p * C.www) - 1.0;
+                vec3 h = abs(x) - 0.5; vec3 ox = floor(x + 0.5); vec3 a0 = x - ox;
+                m *= 1.79284291400159 - 0.85373472095314 * ( a0*a0 + h*h );
+                vec3 g; g.x  = a0.x  * x0.x  + h.x  * x0.y; g.yz = a0.yz * x12.xz + h.yz * x12.yw;
+                return 130.0 * dot(m, g);
+            }
+            void main() {
+                vLine = aLine; // 传递线条索引
+                vec3 pos = position;
+                float flyOffset = uTime * uSpeed; 
+                float noiseZ = pos.z - flyOffset;
+                float riverCurve = sin(noiseZ * 0.05) * 15.0 + sin(noiseZ * 0.2) * 5.0;
+                float distToRiver = abs(pos.x - riverCurve);
+                vDistToRiver = distToRiver;
+                float height = 0.0; float pointSize = 0.0;
+                if (distToRiver < 5.0) {
+                    vType = 0.0; float flow = snoise(vec2(pos.x * 0.5, noiseZ * 0.2 - uTime * 2.0));
+                    height = flow * 0.8; pointSize = 3.5 * (1.0 - distToRiver / 6.0); 
+                    vIntensity = 1.0 + 0.5 * sin(uTime * 5.0 + aRandom.x * 20.0) + uScale;
+                } else if (distToRiver < 12.0) { vType = 2.0; pointSize = 0.0; }
+                else {
+                    vType = 1.0; float mDist = distToRiver - 12.0;
+                    float n1 = snoise(vec2(pos.x * 0.04, noiseZ * 0.04)); float n2 = snoise(vec2(pos.x * 0.1, noiseZ * 0.1));   
+                    height = (abs(n1) * 6.0 + n2 * 2.0) * (mDist * 0.035); height = max(height, -2.0); 
+                    
+                    height *= (0.5 + uScale * 0.25); 
+                    
+                    pointSize = 1.8 + height * 0.05;
+                    float linePattern = sin(noiseZ * 0.5); 
+                    if (linePattern > 0.9) { pointSize *= 1.2; vIntensity = 2.0; } else { vIntensity = 1.2; }
+                }
+                pos.y = height; vHeight = height;
+                vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0); gl_Position = projectionMatrix * mvPosition; vDist = -mvPosition.z;
+                gl_PointSize = pointSize * (50.0 / vDist);
+            }
+        `;
+
+        const fragmentShader = `
+            uniform vec3 uColorRiver; uniform vec3 uColorMtBase; uniform vec3 uColorMtTop;
+            uniform float uTime; uniform float uScale;
+            varying float vType; varying float vHeight; varying float vIntensity; varying float vDist;
+            varying float vLine; varying float vDistToRiver;
+            void main() {
+                if (vType > 1.5 && vType < 2.5) discard;
+                vec2 uv = gl_PointCoord.xy - 0.5; float d = length(uv); if (d > 0.5) discard;
+                float alpha = 1.0 - smoothstep(0.1, 0.5, d); vec3 color = vec3(0.0);
+                
+                // 基础颜色
+                if (vType < 0.5) { 
+                    color = uColorRiver; 
+                    color += vec3(0.4); 
+                } else {
+                    float hFactor = clamp(vHeight / 25.0, 0.0, 1.0); 
+                    vec3 baseMix = mix(uColorMtBase, uColorMtTop, pow(hFactor, 0.8));
+                    color = baseMix * vIntensity * 1.2; 
+                    if (hFactor > 0.6) color += vec3(0.2);
+                }
+                
+                // RGB风格变化
+                if (vType < 0.5) {
+                    // 河流：从河流向外扩散
+                    float spreadFactor = smoothstep(0.0, 15.0, vDistToRiver); // 从河流向外扩散，15是扩散范围
+                    float timeOffset = uTime * 0.2;
+                    float wave = sin(timeOffset + vLine * 10.0) * 0.5 + 0.5;
+                    float colorVariation = step(0.6, wave * (1.0 - spreadFactor));
+                    
+                    if (colorVariation > 0.5) {
+                        // 随机生成RGB颜色，调整为更多红色，更少蓝色
+                        float r = fract(sin(dot(vec2(vLine, uTime * 0.05), vec2(12.9898, 78.233))) * 1.2); // 增强红色
+                        float g = fract(sin(dot(vec2(vLine, uTime * 0.05 + 1.0), vec2(12.9898, 78.233))));
+                        float b = fract(sin(dot(vec2(vLine, uTime * 0.05 + 2.0), vec2(12.9898, 78.233))) * 0.8); // 减弱蓝色
+                        // 与基础颜色混合，保持金色系为主
+                        color = mix(color, vec3(r, g, b), 0.6);
+                    }
+                } else {
+                    float timeOffset = uTime * 0.15;
+                    float heightFactor = vHeight / 25.0; // 地形高度因素，0-1范围
+                    
+                    // 检查音乐律动强度
+                    float rhythmIntensity = uScale;
+                    float isRhythm = step(0.5, rhythmIntensity); // 当音乐律动强度超过0.5时使用原来的方向
+                    
+                    // 基础RGB效果强度
+                    float baseVariation = 0.3;
+                    
+                    if (isRhythm > 0.5) {
+                        // 音乐律动时：从屏幕中间往左右扩散（原来的方向）
+                        float centerSpread = 1.0 - abs(vLine - 0.5) * 2.0; // 从中间向两侧递减
+                        float wave = sin(timeOffset + vLine * 4.0 + heightFactor * 5.0) * 0.5 + 0.5; // 减小vLine系数，降低Z轴运动速度
+                        float dynamicVariation = wave * centerSpread * 0.7; // 动态RGB效果强度
+                        float colorIntensity = baseVariation + dynamicVariation;
+                        
+                        // 随机生成RGB颜色，调整为更多红色，更少蓝色
+                        float r = fract(sin(dot(vec2(vLine, uTime * 0.05), vec2(12.9898, 78.233))) * 1.2); // 增强红色
+                        float g = fract(sin(dot(vec2(vLine, uTime * 0.05 + 1.0), vec2(12.9898, 78.233))));
+                        float b = fract(sin(dot(vec2(vLine, uTime * 0.05 + 2.0), vec2(12.9898, 78.233))) * 0.8); // 减弱蓝色
+                        // 与基础颜色混合，保持金色系为主
+                        color = mix(color, vec3(r, g, b), colorIntensity);
+                    } else {
+                        // 非音乐律动时：从上往下变换
+                        float wave = sin(timeOffset + heightFactor * 10.0) * 0.5 + 0.5;
+                        float dynamicVariation = wave * heightFactor * 0.7; // 动态RGB效果强度，高度越高效果越强
+                        float colorIntensity = baseVariation + dynamicVariation;
+                        
+                        // 随机生成RGB颜色，调整为更多红色，更少蓝色
+                        float r = fract(sin(dot(vec2(heightFactor, uTime * 0.05), vec2(12.9898, 78.233))) * 1.2); // 增强红色
+                        float g = fract(sin(dot(vec2(heightFactor, uTime * 0.05 + 1.0), vec2(12.9898, 78.233))));
+                        float b = fract(sin(dot(vec2(heightFactor, uTime * 0.05 + 2.0), vec2(12.9898, 78.233))) * 0.8); // 减弱蓝色
+                        // 与基础颜色混合，保持金色系为主
+                        color = mix(color, vec3(r, g, b), colorIntensity);
+                    }
+                }
+                
+                float nearFade = smoothstep(5.0, 50.0, vDist); 
+                float farFade = 1.0 - smoothstep(140.0, 200.0, vDist);
+                alpha *= nearFade * farFade;
+                gl_FragColor = vec4(color, alpha);
+            }
+        `;
+
+        const uniforms = {
+            uTime: { value: 0 }, uScale: { value: 0.0 }, uSpeed: { value: CONFIG.speed },
+            uColorRiver: { value: CONFIG.colorRiver }, uColorMtBase: { value: CONFIG.colorMtBase }, uColorMtTop: { value: CONFIG.colorMtTop }
+        };
+
+        const material = new THREE.ShaderMaterial({ vertexShader, fragmentShader, uniforms, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+        const particleSystem = new THREE.Points(geometry, material);
+        particleSystem.position.y = -25.0; 
+        particleSystem.position.z = -20.0; 
+        scene.add(particleSystem);
+
+        // ================= 4. 控制逻辑 (鼠标移动跟随) =================
+        let cameraXOffset = 0; 
+        let currentCameraX = 0; 
+        const MAX_OFFSET = 25; 
+        const SENSITIVITY = 0.1 / 3; // 降低灵敏度至原有水平的三分之一
+
+        const touchIndicator = document.getElementById('touch-indicator');
+
+        function updateIndicator(x, y, active) {} 
+
+        // 鼠标移动跟随控制
+        window.addEventListener('mousemove', (e) => {
+            const rect = viewport.getBoundingClientRect();
+            if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) return;
+            const el = document.elementFromPoint(e.clientX, e.clientY);
+            if (el && el.closest('.panel') && !el.closest('.panel').classList.contains('hidden-ui')) return;
+            
+            // 计算鼠标在视口中的相对位置（-1 到 1）
+            const relativeX = (e.clientX - rect.left) / rect.width * 2 - 1;
+            // 映射到相机偏移范围
+            cameraXOffset = relativeX * MAX_OFFSET;
+        });
+
+        // 保持触摸控制逻辑
+        let isDragging = false;
+        let lastTouchX = 0;
+        
+        function onStart(clientX, clientY) {
+            const rect = viewport.getBoundingClientRect();
+            if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) return;
+            const el = document.elementFromPoint(clientX, clientY);
+            if (el && el.closest('.panel') && !el.closest('.panel').classList.contains('hidden-ui')) return;
+            isDragging = true; lastTouchX = clientX; 
+        }
+
+        function onMove(clientX, clientY) {
+            if (!isDragging) return;
+            const deltaX = clientX - lastTouchX;
+            cameraXOffset -= deltaX * SENSITIVITY;
+            cameraXOffset = Math.max(-MAX_OFFSET, Math.min(MAX_OFFSET, cameraXOffset));
+            lastTouchX = clientX; 
+        }
+        function onEnd() { isDragging = false; }
+
+        window.addEventListener('touchstart', e => onStart(e.touches[0].clientX, e.touches[0].clientY), {passive: false});
+        window.addEventListener('touchmove', e => onMove(e.touches[0].clientX, e.touches[0].clientY), {passive: false});
+        window.addEventListener('touchend', onEnd);
+
+
+
+        // ================= 6. 动画循环 =================
+        const clock = new THREE.Clock();
+        let targetScale = 0.1; let currentScale = 0.1;
+
+        // 初始化
+        update3DLyric();
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const t = clock.getElapsedTime();
+
+            if (isPlaying && analyser) {
+                analyser.getByteFrequencyData(dataArray);
+                const audioScale = getBassSignal();
+                const breathing = 0.05 + Math.sin(t * 1.0) * 0.2;
+                targetScale = Math.max(audioScale, breathing);
+                
+                // 歌词同步
+                if (lyrics.length > 0 && !isNaN(audioElement.currentTime)) {
+                    const currentTime = audioElement.currentTime;
+                    console.log(`当前播放时间: ${currentTime}, 当前歌词索引: ${currentLyricIndex}`);
+                    
+                    // 找到当前时间对应的歌词
+                    let updated = false;
+                    while (currentLyricIndex < lyrics.length && lyrics[currentLyricIndex].time <= currentTime) {
+                        currentLyric = lyrics[currentLyricIndex].text;
+                        console.log(`更新歌词: ${currentLyric} (时间: ${lyrics[currentLyricIndex].time})`);
+                        currentLyricIndex++;
+                        updated = true;
+                    }
+                    
+                    // 只有当歌词真正更新时才调用update3DLyric
+                    if (updated) {
+                        update3DLyric();
+                    }
+                    
+                    // 确保即使没有新歌词更新，也要保持当前歌词显示
+                    if (!updated && currentLyricIndex > 0) {
+                        // 确保currentLyric不为空
+                        if (!currentLyric && currentLyricIndex > 0) {
+                            currentLyric = lyrics[currentLyricIndex - 1].text;
+                            update3DLyric();
+                        }
+                    }
+                    
+                    // 如果当前时间小于第一句歌词的时间，重置到第一句
+                    if (currentTime < lyrics[0].time) {
+                        currentLyricIndex = 0;
+                        currentLyric = lyrics[0].text; // 显示第一句歌词，而不是空字符串
+                        console.log('重置歌词到开始');
+                        update3DLyric();
+                    }
+                    
+                    // 处理歌词索引超出范围的情况
+                    if (currentLyricIndex >= lyrics.length && lyrics.length > 0) {
+                        // 显示最后一句歌词
+                        currentLyric = lyrics[lyrics.length - 1].text;
+                        update3DLyric();
+                    } else if (currentLyricIndex < 0 && lyrics.length > 0) {
+                        // 确保索引不小于0
+                        currentLyricIndex = 0;
+                        currentLyric = lyrics[0].text;
+                        update3DLyric();
+                    }
+                } else {
+                    console.log(`歌词同步条件不满足: 歌词数量=${lyrics.length}, 播放时间=${audioElement.currentTime}`);
+                }
+            } else {
+                targetScale = 0.1 + Math.sin(t * 1.2) * 0.08; 
+            }
+
+            let ease = (targetScale > currentScale) ? 0.3 : 0.08; 
+            currentScale += (targetScale - currentScale) * ease;
+            currentCameraX += (cameraXOffset - currentCameraX) * 0.05;
+
+            camera.position.x = currentCameraX;
+            camera.position.y = 12 + Math.sin(t * 0.5) * 0.5;
+            camera.rotation.z = (Math.sin(t * 0.2) * 0.02);
+
+            uniforms.uTime.value = t;
+            uniforms.uScale.value = currentScale;
+            starMat.uniforms.uTime.value = t;
+            
+            // 计算与江山动画相同的移动偏移
+            const flyOffset = t * CONFIG.speed;
+            
+            // 确保歌词跟着鼠标移动，并且与江山动画坐标系同步
+            const x = parseFloat(document.getElementById('xPos').value) || 0;
+            const y = parseFloat(document.getElementById('yPos').value) || -30;
+            const z = parseFloat(document.getElementById('zPos').value) || -300;
+            
+            // 计算与江山动画相同的移动偏移，但保持歌词在固定位置
+            const basePosition = new THREE.Vector3(x, y, z); // 歌词基准位置
+            // 不应用移动偏移，保持歌词在固定位置
+            const position = new THREE.Vector3(x, y, z);
+            const charCount = lyricLetters.length;
+            const spacing = parseFloat(document.getElementById('letterSpacing').value) || 15; // 使用默认值15
+            const startX = basePosition.x - (charCount * spacing) / 2;
+            
+            // 计算距离缩放因子，确保字体在不同距离下保持一致大小
+            const distance = Math.abs(position.z);
+            const scaleFactor = 1 + (distance / 100); // 距离越远，缩放越大
+            
+            // 处理淡入效果（只有第一句歌词）
+            if (isFadingIn && lyricOpacity < 1) {
+                lyricOpacity += 0.02; // 淡入速度
+                if (lyricOpacity >= 1) {
+                    lyricOpacity = 1;
+                    isFadingIn = false;
+                }
+            }
+            
+            // 处理淡出效果（歌曲结束时）
+            if (isFadingOut && lyricOpacity > 0) {
+                lyricOpacity -= 0.02; // 淡出速度
+                if (lyricOpacity <= 0) {
+                    lyricOpacity = 0;
+                    isFadingOut = false;
+                }
+            }
+            
+            // 检查歌曲是否结束
+            if (isPlaying && audioElement.ended) {
+                // 歌曲结束，触发淡出
+                if (!isFadingOut && lyricOpacity > 0) {
+                    isFadingOut = true;
+                    isFadingIn = false;
+                }
+            }
+            
+            // 检查歌曲是否重新开始（循环播放）
+            if (isPlaying && audioElement.currentTime < 1 && !isFadingIn && !isFadingOut) {
+                // 歌曲重新开始，触发淡入
+                isFadingIn = true;
+                isFadingOut = false;
+            }
+            
+            lyricLetters.forEach((letter, index) => {
+                if (letter) {
+                    // 计算每个字母的目标位置
+                    const targetX = startX + index * spacing + currentCameraX;
+                    const targetY = y + Math.sin(t * 0.5) * 0.5;
+                    
+                    // 平滑移动到目标位置
+                    letter.position.x += (targetX - letter.position.x) * 0.05;
+                    letter.position.y = targetY;
+                    letter.position.z = position.z;
+                    
+                    // 动态调整缩放因子
+                    letter.scale.set(scaleFactor, scaleFactor, 1);
+                    
+                    // 应用透明度
+                    letter.material.opacity = lyricOpacity;
+                }
+            });
+
+            renderer.render(scene, camera);
+        }
+        animate();
+
+
+
+        window.addEventListener('resize', () => {
+            const w = viewport.clientWidth;
+            const h = viewport.clientHeight;
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+            renderer.setSize(w, h);
+        });
+    </script>
+</body>
+</html>
