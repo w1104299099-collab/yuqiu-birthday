@@ -162,6 +162,78 @@
     <div id="stars-container"></div>
 
     <script>
+        // 背景音乐循环播放逻辑
+        let bgm1 = new Audio('bgm/bgm.wav');
+        let bgm2 = new Audio('bgm/bgm.wav');
+        let isBgm1Playing = false;
+        let isBgm2Playing = false;
+        let bgm1StartedNext = false;
+        let bgm2StartedNext = false;
+
+        function setupBgmLoop() {
+            console.log('Setting up BGM loop');
+            // 确保音频加载完成
+            bgm1.addEventListener('loadedmetadata', () => {
+                console.log('BGM1 loaded, duration:', bgm1.duration);
+            });
+            bgm2.addEventListener('loadedmetadata', () => {
+                console.log('BGM2 loaded, duration:', bgm2.duration);
+            });
+            
+            bgm1.addEventListener('timeupdate', () => handleBgmTimeUpdate(bgm1, bgm2, 'bgm1'));
+            bgm2.addEventListener('timeupdate', () => handleBgmTimeUpdate(bgm2, bgm1, 'bgm2'));
+            
+            bgm1.addEventListener('play', () => {
+                isBgm1Playing = true;
+                bgm1StartedNext = false; // 重置标志位
+                console.log('BGM1 started playing');
+            });
+            bgm2.addEventListener('play', () => {
+                isBgm2Playing = true;
+                bgm2StartedNext = false; // 重置标志位
+                console.log('BGM2 started playing');
+            });
+            
+            bgm1.addEventListener('ended', () => {
+                isBgm1Playing = false;
+                console.log('BGM1 ended');
+            });
+            bgm2.addEventListener('ended', () => {
+                isBgm2Playing = false;
+                console.log('BGM2 ended');
+            });
+        }
+
+        function handleBgmTimeUpdate(currentAudio, nextAudio, audioId) {
+            if (currentAudio.duration && currentAudio.currentTime >= currentAudio.duration - 7) {
+                // 检查是否已经开始播放下一个音频
+                if (audioId === 'bgm1' && !bgm1StartedNext) {
+                    console.log(`Current BGM time: ${currentAudio.currentTime}, duration: ${currentAudio.duration}, starting next BGM`);
+                    // 开始播放下一个实例
+                    nextAudio.currentTime = 0;
+                    nextAudio.play().catch(e => console.error('Failed to play next BGM:', e));
+                    bgm1StartedNext = true;
+                } else if (audioId === 'bgm2' && !bgm2StartedNext) {
+                    console.log(`Current BGM time: ${currentAudio.currentTime}, duration: ${currentAudio.duration}, starting next BGM`);
+                    // 开始播放下一个实例
+                    nextAudio.currentTime = 0;
+                    nextAudio.play().catch(e => console.error('Failed to play next BGM:', e));
+                    bgm2StartedNext = true;
+                }
+            }
+        }
+
+        function startBgm() {
+            console.log('Starting BGM');
+            bgm1.play().catch(error => {
+                console.error('Failed to play BGM:', error);
+                // 如果自动播放失败，尝试在用户交互后播放
+                document.addEventListener('click', () => {
+                    bgm1.play().catch(e => console.error('Failed to play BGM on click:', e));
+                }, { once: true });
+            });
+        }
+
         // 配置常量
         const BASE_PARTICLE_COUNT = 4000; // 离散状态的粒子数量
         const MAX_MODEL_PARTICLES = 8000; // 模型粒子上限数量
@@ -181,6 +253,7 @@ let mouseX = 0;
         const mouseRotationConfig = {
             'model': { sensitivityX: Math.PI, sensitivityY: Math.PI * 0.1, lerpFactor: 0.05 },
             'giftBox': { sensitivityX: Math.PI, sensitivityY: Math.PI * 0.5, lerpFactor: 0.05 },
+            'candle': { sensitivityX: Math.PI, sensitivityY: 0, lerpFactor: 0.05 },
             'random': { sensitivityX: Math.PI, sensitivityY: Math.PI * 0.5, lerpFactor: 0.05 },
             'cube': { sensitivityX: Math.PI, sensitivityY: Math.PI * 0.5, lerpFactor: 0.05 },
             'gift': { sensitivityX: Math.PI, sensitivityY: Math.PI * 0.5, lerpFactor: 0.05 },
@@ -197,6 +270,7 @@ let mouseX = 0;
             gift: null,
             model: null,
             giftBox: null,
+            candle: null,
             number3: null,
             number2: null,
             number1: null,
@@ -770,8 +844,81 @@ function updateStars() {
             });
         }
 
+        function loadCandleModel(url) {
+            return new Promise((resolve, reject) => {
+                const loader = new THREE.GLTFLoader();
+                loader.load(
+                    url,
+                    (gltf) => {
+                        const model = gltf.scene;
+                        const points = [];
+                        
+                        // 递归遍历模型的所有网格
+                        model.traverse((child) => {
+                            if (child.isMesh) {
+                                const geometry = child.geometry;
+                                geometry.computeBoundingBox();
+                                
+                                // 提取顶点数据
+                                const positions = geometry.attributes.position.array;
+                                for (let i = 0; i < positions.length; i += 3) {
+                                    const x = positions[i];
+                                    const y = positions[i + 1];
+                                    const z = positions[i + 2];
+                                    points.push({x, y, z});
+                                }
+                            }
+                        });
+                        
+                        // 如果顶点数量超过上限，进行采样
+                        let sampledPoints = points;
+                        if (points.length > MAX_MODEL_PARTICLES) {
+                            console.log('Candle model has too many vertices:', points.length, ', sampling to:', MAX_MODEL_PARTICLES);
+                            sampledPoints = [];
+                            const step = points.length / MAX_MODEL_PARTICLES;
+                            for (let i = 0; i < MAX_MODEL_PARTICLES; i++) {
+                                const index = Math.floor(i * step);
+                                sampledPoints.push(points[index]);
+                            }
+                        }
+                        
+                        // 创建模型数据
+                        const modelParticleCount = sampledPoints.length;
+                        shapes.candle = new Float32Array(modelParticleCount * 3);
+                        
+                        for (let i = 0; i < modelParticleCount; i++) {
+                            const p = sampledPoints[i];
+                            
+                            // 不应用旋转变换，保持蜡烛直立
+                            const x = p.x;
+                            const y = p.y;
+                            const z = p.z;
+                            
+                            // 缩放和位移
+                            shapes.candle[i * 3] = x * 45; // 缩放模型（放大45倍）
+                            shapes.candle[i * 3 + 1] = y * 45 - 20; // 缩放模型并往下移动
+                            shapes.candle[i * 3 + 2] = z * 45;
+                        }
+                        
+                        console.log('Candle model loaded successfully, particle count:', modelParticleCount);
+                        resolve();
+                    },
+                    (xhr) => {
+                        console.log((xhr.loaded / xhr.total * 100) + '% loaded');
+                    },
+                    (error) => {
+                        console.error('An error happened while loading the candle model:', error);
+                        reject(error);
+                    }
+                );
+            });
+        }
+
         async function init() {
             console.log('Init function called');
+            // 播放背景音乐
+            setupBgmLoop();
+            startBgm();
             scene = new THREE.Scene();
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
             camera.position.z = 80; // 拉近相机，使粒子更清晰可见
@@ -814,6 +961,26 @@ function updateStars() {
                 shapes.model = shapes.random;
             }
             
+            // 加载candle模型
+            try {
+                await loadCandleModel('model/candle.glb');
+                console.log('Candle model loaded successfully');
+            } catch (error) {
+                console.error('Failed to load candle model:', error);
+                // 如果模型加载失败，创建一个默认的candle数据
+                const candleParticleCount = 1000;
+                shapes.candle = new Float32Array(candleParticleCount * 3);
+                for (let i = 0; i < candleParticleCount; i++) {
+                    const radius = 15;
+                    const theta = Math.random() * Math.PI * 2;
+                    const phi = Math.random() * Math.PI;
+                    shapes.candle[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
+                    shapes.candle[i * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
+                    shapes.candle[i * 3 + 2] = radius * Math.cos(phi);
+                }
+                console.log('Default candle data created');
+            }
+            
             // 加载gift_box模型
             try {
                 await loadGiftBoxModel('model/gift_box.glb');
@@ -852,17 +1019,17 @@ function updateStars() {
             }
             geometry.attributes.position.needsUpdate = true;
             
-            // 创建第二个粒子系统用于显示gift_box
-            const giftBoxParticleCount = shapes.giftBox.length / 3;
+            // 创建第二个粒子系统用于显示candle
+            const candleParticleCount = shapes.candle.length / 3;
             geometry2 = new THREE.BufferGeometry();
-            const positions2 = new Float32Array(giftBoxParticleCount * 3);
-            const colors2 = new Float32Array(giftBoxParticleCount * 3);
+            const positions2 = new Float32Array(candleParticleCount * 3);
+            const colors2 = new Float32Array(candleParticleCount * 3);
             
-            for (let i = 0; i < giftBoxParticleCount; i++) {
+            for (let i = 0; i < candleParticleCount; i++) {
                 // 初始位置：从远处随机位置开始
-                const targetX = shapes.giftBox[i * 3];
-                const targetY = shapes.giftBox[i * 3 + 1];
-                const targetZ = shapes.giftBox[i * 3 + 2];
+                const targetX = shapes.candle[i * 3];
+                const targetY = shapes.candle[i * 3 + 1];
+                const targetZ = shapes.candle[i * 3 + 2];
                 
                 positions2[i * 3] = targetX + (Math.random() - 0.5) * 500;
                 positions2[i * 3 + 1] = targetY + (Math.random() - 0.5) * 500;
@@ -890,30 +1057,30 @@ function updateStars() {
             
             particles2 = new THREE.Points(geometry2, material2);
             scene.add(particles2);
-            console.log('Gift box particles created and added to scene');
+            console.log('Candle particles created and added to scene');
             
 // 设置第二个粒子系统的初始状态（但设置 transitioning 状态防止在聚拢过程中点击）
             isTransitioning = true;
-            currentState2 = 'giftBox';
-            currentParticleCount2 = giftBoxParticleCount;
+            currentState2 = 'candle';
+            currentParticleCount2 = candleParticleCount;
 
             // 粒子聚拢动画
             const posAttr2 = geometry2.attributes.position;
             let completed = 0;
             const duration = 3000;
             
-            for (let i = 0; i < giftBoxParticleCount; i++) {
+            for (let i = 0; i < candleParticleCount; i++) {
                 new TWEEN.Tween(posAttr2.array)
                     .to({
-                        [i * 3]: shapes.giftBox[i * 3],
-                        [i * 3 + 1]: shapes.giftBox[i * 3 + 1],
-                        [i * 3 + 2]: shapes.giftBox[i * 3 + 2]
+                        [i * 3]: shapes.candle[i * 3],
+                        [i * 3 + 1]: shapes.candle[i * 3 + 1],
+                        [i * 3 + 2]: shapes.candle[i * 3 + 2]
                     }, duration)
                     .easing(TWEEN.Easing.Exponential.InOut)
 .onComplete(() => {
                         completed++;
-                        if (completed === giftBoxParticleCount) {
-                            currentState2 = 'giftBox';
+                        if (completed === candleParticleCount) {
+                            currentState2 = 'candle';
                             isTransitioning = false; // 聚拢完成，允许用户操作
                         }
                     })
@@ -922,7 +1089,7 @@ function updateStars() {
             
             const updateTask = setInterval(() => {
                 posAttr2.needsUpdate = true;
-                if (completed >= giftBoxParticleCount) clearInterval(updateTask);
+                if (completed >= candleParticleCount) clearInterval(updateTask);
             }, 16);
 
             document.getElementById('start-btn').addEventListener('click', onStart);
@@ -1322,35 +1489,35 @@ function updateStars() {
 if (btnText === '再次启航') {
                 hideDanmaku();
                 hideStars(); // 隐藏星星系统
-                // 再次启航：第二系统的粒子聚拢回归成礼物盒
+                // 再次启航：第二系统的粒子聚拢回归成蜡烛
                 isTransitioning = true; // 标记正在过渡，防止重复点击
-                const giftBoxParticleCount = shapes.giftBox.length / 3;
-                updateParticleSystem2(giftBoxParticleCount);
+                const candleParticleCount = shapes.candle.length / 3;
+                updateParticleSystem2(candleParticleCount);
 
                 // 设置粒子大小为原始状态
                 material2.size = 1.5;
 
-                // 将第二个粒子系统聚拢成gift_box状态
+                // 将第二个粒子系统聚拢成candle状态
                 const posAttr2 = geometry2.attributes.position;
-                for (let i = 0; i < giftBoxParticleCount; i++) {
+                for (let i = 0; i < candleParticleCount; i++) {
                     const currentX = posAttr2.array[i * 3];
                     const currentY = posAttr2.array[i * 3 + 1];
                     const currentZ = posAttr2.array[i * 3 + 2];
                     
                     new TWEEN.Tween(posAttr2.array)
                         .to({
-                            [i * 3]: shapes.giftBox[i * 3],
-                            [i * 3 + 1]: shapes.giftBox[i * 3 + 1],
-                            [i * 3 + 2]: shapes.giftBox[i * 3 + 2]
+                            [i * 3]: shapes.candle[i * 3],
+                            [i * 3 + 1]: shapes.candle[i * 3 + 1],
+                            [i * 3 + 2]: shapes.candle[i * 3 + 2]
                         }, 2000)
                         .easing(TWEEN.Easing.Exponential.InOut)
 .onComplete(() => {
-                            currentState2 = 'giftBox';
+                            currentState2 = 'candle';
                             isTransitioning = false; // 聚拢完成，允许用户操作
                             // 再次显现"启航"按钮
                             document.getElementById('start-btn').style.display = 'none';
                             document.getElementById('start-btn').innerText = '启航';
-                            document.getElementById('hint').innerText = '点击礼物盒开始';
+                            document.getElementById('hint').innerText = '点击蜡烛开始';
                             document.getElementById('hint').style.display = 'none';
                             // 重置弹幕状态
                             resetDanmaku();
@@ -1365,6 +1532,39 @@ if (btnText === '再次启航') {
                 
                 document.getElementById('start-btn').style.display = 'none';
                 document.getElementById('hint').style.display = 'none';
+            } else if (currentState2 === 'candle') {
+                // 点击蜡烛时，先飞散粒子，然后聚合成礼物盒
+                isTransitioning = true;
+                
+                // 先让第二系统的所有粒子随机向外飞散
+                const posAttr2 = geometry2.attributes.position;
+                const count2 = currentParticleCount2;
+                
+                for (let i = 0; i < count2; i++) {
+                    const currentX = posAttr2.array[i * 3];
+                    const currentY = posAttr2.array[i * 3 + 1];
+                    const currentZ = posAttr2.array[i * 3 + 2];
+                    
+                    new TWEEN.Tween(posAttr2.array)
+                        .to({
+                            [i * 3]: currentX + (Math.random() - 0.5) * 500,
+                            [i * 3 + 1]: currentY + (Math.random() - 0.5) * 500,
+                            [i * 3 + 2]: currentZ + (Math.random() - 0.5) * 500
+                        }, 3000)
+                        .easing(TWEEN.Easing.Exponential.Out)
+                        .start();
+                }
+                
+                // 3秒后切换到礼物盒形态
+                setTimeout(() => {
+                    const giftBoxParticleCount = shapes.giftBox.length / 3;
+                    updateParticleSystem2(giftBoxParticleCount);
+                    // 设置粒子大小与蜡烛一致
+                    material2.size = 1.5;
+                    morphTo2('giftBox', 3000, TWEEN.Easing.Exponential.InOut);
+                    document.getElementById('start-btn').style.display = 'none';
+                    document.getElementById('hint').innerText = '点击礼物盒开始';
+                }, 3000);
             } else {
                 // 检查是否有模型数据
                 if (shapes.model) {
@@ -1436,8 +1636,8 @@ if (btnText === '再次启航') {
                 if (canEnterCountdown()) {
                     startCountdownSequence();
                 }
-            } else if (currentState2 === 'giftBox') {
-                // 点击礼物盒时调用启航功能
+            } else if (currentState2 === 'giftBox' || currentState2 === 'candle') {
+                // 点击礼物盒或蜡烛时调用启航功能
                 onStart();
             }
         }
@@ -1508,12 +1708,13 @@ if (btnText === '再次启航') {
         let currentState2 = 'random';
 
         function morphTo2(targetKey, duration = DURATION, easing = TWEEN.Easing.Exponential.InOut) {
+            isTransitioning = true;
             const targetData = shapes[targetKey];
             const targetParticleCount = targetData.length / 3;
             const currentCount = currentParticleCount2;
             
             // 调整粒子大小
-            if (targetKey === 'model') {
+            if (targetKey === 'model' || targetKey === 'giftBox' || targetKey === 'candle') {
                 material2.size = 1.5;
             } else {
                 material2.size = 3;
@@ -1542,6 +1743,7 @@ if (btnText === '再次启航') {
                             completed++;
                             if (completed === targetParticleCount) {
                                 currentState2 = targetKey;
+                                isTransitioning = false;
                             }
                         })
                         .start();
@@ -1573,6 +1775,7 @@ if (btnText === '再次启航') {
                             completed++;
                             if (completed === targetParticleCount) {
                                 currentState2 = targetKey;
+                                isTransitioning = false;
                             }
                         })
                         .start();
@@ -1599,6 +1802,7 @@ if (btnText === '再次启航') {
                                 // 所有动画完成后，更新粒子系统数量
                                 updateParticleSystem2(targetParticleCount);
                                 currentState2 = targetKey;
+                                isTransitioning = false;
                             }
                         })
                         .start();
@@ -1623,6 +1827,7 @@ if (btnText === '再次启航') {
                                 // 所有动画完成后，更新粒子系统数量
                                 updateParticleSystem2(targetParticleCount);
                                 currentState2 = targetKey;
+                                isTransitioning = false;
                             }
                         })
                         .start();
@@ -1647,6 +1852,7 @@ if (btnText === '再次启航') {
                             completed++;
                             if (completed === currentCount) {
                                 currentState2 = targetKey;
+                                isTransitioning = false;
                             }
                         })
                         .start();
@@ -1913,6 +2119,8 @@ if (btnText === '再次启航') {
                     particles2.rotation.y += 0.005;
                     particles2.rotation.x += 0.002;
                 } else if (currentState2 === 'model') {
+                    particles2.rotation.y += 0.005;
+                } else if (currentState2 === 'candle') {
                     particles2.rotation.y += 0.005;
                 } else if (currentState2.includes('number')) {
                     // 数字显示时，允许通过外部设置的旋转角度
