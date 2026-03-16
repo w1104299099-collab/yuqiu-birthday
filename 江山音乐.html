@@ -77,6 +77,42 @@
 
         .hint { font-size: 10px; color: #887744; margin-top: 15px; text-align: center; line-height: 1.4; }
 
+        /* 文本显示系统 */
+        #text-display {
+            position: absolute; top: 10%; left: 50%; transform: translateX(-50%);
+            width: 500px; height: 200px; background: transparent;
+            z-index: 30; display: none; overflow: hidden;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        #text-display.show {
+            opacity: 1;
+        }
+        #text-content {
+            width: 100%; height: 100%; padding: 15px; box-sizing: border-box;
+            color: #ffeb99; font-family: '楷体', 'KaiTi', serif; font-size: 19px;
+            line-height: 1.5; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word;
+            text-shadow: 0 0 20px rgba(255, 220, 100, 1.0), 0 0 30px rgba(255, 220, 100, 0.8);
+            background: transparent;
+        }
+        #text-content::-webkit-scrollbar {
+            width: 8px;
+        }
+        #text-content::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        #text-content::-webkit-scrollbar-thumb {
+            background: rgba(255, 220, 100, 0.5);
+            border-radius: 4px;
+        }
+        #text-close {
+            position: absolute; top: 0; right: 0; width: 24px; height: 24px;
+            background: transparent; border: none;
+            cursor: pointer; display: flex; align-items: center; justify-content: center;
+            font-size: 14px; color: #ffeb99; z-index: 10;
+            text-shadow: 0 0 16px rgba(255, 220, 100, 1.0);
+        }
+
         /* HUD Spectrum */
         #hud-spectrum {
             position: absolute; bottom: 0; right: 20px; width: 320px; height: 100px;
@@ -138,6 +174,14 @@
         <input type="number" id="letterSize" value="3" step="0.1">
         <button onclick="updateLyric()">更新歌词</button>
     </div>
+
+    <!-- 文本显示系统 -->
+    <div id="text-display">
+        <div id="text-close">×</div>
+        <div id="text-content"></div>
+    </div>
+
+
 
     <script>
         // ================= 配置参数 =================
@@ -201,6 +245,11 @@
         // 歌词数据
         let lyrics = [];
         let currentLyricIndex = 0;
+        
+        // 文本显示系统
+        let textFiles = [];
+        let currentTextIndex = 0;
+        let textDisplayed = [];
         
         // 解析LRC歌词文件
         function parseLRC(lrcContent) {
@@ -310,6 +359,49 @@
             return lyricArray;
         }
         
+        // 加载文本文件
+        function loadTextFiles() {
+            // 尝试加载txt文件夹中的所有文本文件
+            const textFolder = 'txt/';
+            const textFilesList = ['测试文本.txt', '测试2.txt'];
+            
+            textFiles = [];
+            currentTextIndex = 0;
+            textDisplayed = [];
+            
+            // 按顺序加载文本文件
+            const loadTextFile = (index) => {
+                if (index >= textFilesList.length) {
+                    console.log('文本文件加载完成:', textFiles.length, '个文件');
+                    return Promise.resolve();
+                }
+                
+                const fileName = textFilesList[index];
+                const url = `${textFolder}${fileName}`;
+                
+                console.log(`尝试加载文本文件: ${url}`);
+                
+                return fetch(url)
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`文件不存在`);
+                        }
+                        return response.text();
+                    })
+                    .then(text => {
+                        console.log(`加载文本文件成功: ${fileName}`);
+                        textFiles.push(text);
+                        return loadTextFile(index + 1);
+                    })
+                    .catch(err => {
+                        console.warn(`加载文本文件失败: ${fileName}`, err.message);
+                        return loadTextFile(index + 1);
+                    });
+            };
+            
+            return loadTextFile(0);
+        }
+        
         // 加载歌词文件
         function loadLyrics(musicUrl) {
             // 尝试加载不同格式的歌词文件
@@ -407,8 +499,11 @@
                 audioCtx.resume();
             }
             
-            // 加载歌词
-            loadLyrics(musicUrl).then(() => {
+            // 加载文本文件
+            loadTextFiles().then(() => {
+                // 加载歌词
+                return loadLyrics(musicUrl);
+            }).then(() => {
                 audioElement.src = musicUrl;
                 setupAudio();
                 
@@ -436,6 +531,12 @@
                         // 歌曲重新开始，触发淡入
                         isFadingIn = true;
                         isFadingOut = false;
+                        // 重置歌词索引，确保歌词也能循环播放
+                        currentLyricIndex = 0;
+                        if (lyrics.length > 0) {
+                            currentLyric = lyrics[0].text;
+                            update3DLyric();
+                        }
                     }
                 });
             });
@@ -443,6 +544,9 @@
 
         // 修复AudioContext启动问题：需要用户手势
         function resumeAudioContext() {
+            // 开场动画完成后才允许交互
+            if (!initAnimationComplete) return;
+            
             if (audioCtx.state === 'suspended') {
                 audioCtx.resume();
             }
@@ -456,6 +560,9 @@
         // 添加用户手势监听器
         document.addEventListener('click', resumeAudioContext);
         document.addEventListener('touchstart', resumeAudioContext);
+        
+        // 添加关闭文本框的点击事件监听器
+        document.getElementById('text-close').addEventListener('click', closeTextDisplay);
 
 
 
@@ -517,9 +624,9 @@
         starGeo.setAttribute('aData', new THREE.Float32BufferAttribute(starData, 3));
 
         const starMat = new THREE.ShaderMaterial({
-            uniforms: { uTime: { value: 0 } },
+            uniforms: { uTime: { value: 0 }, uInitProgress: { value: 0.0 } },
             vertexShader: `
-                uniform float uTime; 
+                uniform float uTime; uniform float uInitProgress;
                 attribute vec3 aData; // x: size, y: speed, z: offset
                 attribute vec3 color;
                 varying vec3 vColor;
@@ -536,7 +643,9 @@
 
                     float blink = sin(uTime * aData.y + aData.z);
                     float twinkle = pow(0.5 + 0.5 * blink, 3.0); 
-                    vAlpha = 0.4 + 0.6 * twinkle; 
+                    float starInitProgress = clamp(uInitProgress * 2.0, 0.0, 1.0); // 星空变亮速度比山河快一倍
+                    float initAlpha = pow(starInitProgress, 2.0); // 指数级增长变亮
+                    vAlpha = (0.4 + 0.6 * twinkle) * initAlpha;
                 }
             `,
             fragmentShader: `
@@ -563,6 +672,18 @@
 
         const starSystem = new THREE.Points(starGeo, starMat);
         scene.add(starSystem);
+
+        // LightStar系统
+        const lightStarSystem = new THREE.Group();
+        scene.add(lightStarSystem);
+        
+        let specialStar = null;
+        let specialStarCollision = null;
+        let specialStarCreated = false;
+        let specialStarFading = false;
+        let specialStarBlinkSpeed = 0;
+        let specialStarBlinkOffset = 0;
+        let isFirstStar = true;
 
         // ================= 3D歌词系统 =================
         let lyricLetters = [];
@@ -724,7 +845,7 @@
         geometry.setAttribute('aLine', new THREE.Float32BufferAttribute(lineIndices, 1));
 
         const vertexShader = `
-            uniform float uTime; uniform float uScale; uniform float uSpeed;
+            uniform float uTime; uniform float uScale; uniform float uSpeed; uniform float uInitProgress;
             attribute vec3 aRandom; attribute float aLine;
             varying float vType; varying float vHeight; varying float vIntensity; varying float vDist;
             varying float vLine; varying float vDistToRiver;
@@ -769,6 +890,25 @@
                     float linePattern = sin(noiseZ * 0.5); 
                     if (linePattern > 0.9) { pointSize *= 1.2; vIntensity = 2.0; } else { vIntensity = 1.2; }
                 }
+                
+                // 初始动画效果
+                // 河流：从近处向远处流动 (基于z轴位置)
+                float riverInitProgress = clamp((uInitProgress - (pos.z + 100.0) / 200.0), 0.0, 1.0);
+                riverInitProgress = pow(riverInitProgress, 0.8); // 缓动函数
+                
+                // 山川：从地面向高处生长 (基于高度)
+                float mountainInitProgress = clamp(uInitProgress, 0.0, 1.0);
+                mountainInitProgress = pow(mountainInitProgress, 0.6); // 缓动函数
+                
+                // 应用初始动画
+                if (vType < 0.5) { // 河流
+                    height *= riverInitProgress;
+                    pointSize *= riverInitProgress;
+                } else if (vType > 0.5) { // 山川
+                    height *= mountainInitProgress;
+                    pointSize *= mountainInitProgress;
+                }
+                
                 pos.y = height; vHeight = height;
                 vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0); gl_Position = projectionMatrix * mvPosition; vDist = -mvPosition.z;
                 gl_PointSize = pointSize * (50.0 / vDist);
@@ -777,13 +917,18 @@
 
         const fragmentShader = `
             uniform vec3 uColorRiver; uniform vec3 uColorMtBase; uniform vec3 uColorMtTop;
-            uniform float uTime; uniform float uScale;
+            uniform float uTime; uniform float uScale; uniform float uInitProgress;
             varying float vType; varying float vHeight; varying float vIntensity; varying float vDist;
             varying float vLine; varying float vDistToRiver;
             void main() {
                 if (vType > 1.5 && vType < 2.5) discard;
                 vec2 uv = gl_PointCoord.xy - 0.5; float d = length(uv); if (d > 0.5) discard;
                 float alpha = 1.0 - smoothstep(0.1, 0.5, d); vec3 color = vec3(0.0);
+                
+                // 初始动画：控制粒子透明度
+                float initAlpha = uInitProgress;
+                initAlpha = pow(initAlpha, 2.0); // 指数级增长变亮
+                alpha *= initAlpha;
                 
                 // 基础颜色
                 if (vType < 0.5) { 
@@ -860,7 +1005,8 @@
 
         const uniforms = {
             uTime: { value: 0 }, uScale: { value: 0.0 }, uSpeed: { value: CONFIG.speed },
-            uColorRiver: { value: CONFIG.colorRiver }, uColorMtBase: { value: CONFIG.colorMtBase }, uColorMtTop: { value: CONFIG.colorMtTop }
+            uColorRiver: { value: CONFIG.colorRiver }, uColorMtBase: { value: CONFIG.colorMtBase }, uColorMtTop: { value: CONFIG.colorMtTop },
+            uInitProgress: { value: 0.0 }
         };
 
         const material = new THREE.ShaderMaterial({ vertexShader, fragmentShader, uniforms, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
@@ -872,8 +1018,10 @@
         // ================= 4. 控制逻辑 (鼠标移动跟随) =================
         let cameraXOffset = 0; 
         let currentCameraX = 0; 
+        let mouseY = 0; // 鼠标y轴相对位置
         const MAX_OFFSET = 25; 
         const SENSITIVITY = 0.1 / 3; // 降低灵敏度至原有水平的三分之一
+        const MAX_ROTATION = 0.2; // 最大旋转角度
 
         const touchIndicator = document.getElementById('touch-indicator');
 
@@ -881,6 +1029,9 @@
 
         // 鼠标移动跟随控制
         window.addEventListener('mousemove', (e) => {
+            // 开场动画完成后才允许交互
+            if (!initAnimationComplete) return;
+            
             const rect = viewport.getBoundingClientRect();
             if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) return;
             const el = document.elementFromPoint(e.clientX, e.clientY);
@@ -888,8 +1039,35 @@
             
             // 计算鼠标在视口中的相对位置（-1 到 1）
             const relativeX = (e.clientX - rect.left) / rect.width * 2 - 1;
+            const relativeY = (e.clientY - rect.top) / rect.height * 2 - 1;
             // 映射到相机偏移范围
             cameraXOffset = relativeX * MAX_OFFSET;
+            // 存储鼠标y轴位置，用于歌词旋转
+            mouseY = -relativeY * MAX_ROTATION; // 取负值是为了让旋转方向符合直觉
+            
+            // 检测鼠标是否悬停在特殊粒子上
+            if (specialStarCollision && !specialStarFading) {
+                const mouse = new THREE.Vector2(
+                    ((e.clientX - rect.left) / rect.width) * 2 - 1,
+                    -((e.clientY - rect.top) / rect.height) * 2 + 1
+                );
+                
+                // 射线检测
+                const raycaster = new THREE.Raycaster();
+                raycaster.setFromCamera(mouse, camera);
+                
+                const intersects = raycaster.intersectObject(specialStarCollision);
+                if (intersects.length > 0) {
+                    // 鼠标悬停在粒子上，显示手指光标
+                    viewport.style.cursor = 'pointer';
+                } else {
+                    // 鼠标离开粒子，恢复默认光标
+                    viewport.style.cursor = 'default';
+                }
+            } else {
+                // 没有特殊粒子或粒子正在淡出，恢复默认光标
+                viewport.style.cursor = 'default';
+            }
         });
 
         // 保持触摸控制逻辑
@@ -897,6 +1075,9 @@
         let lastTouchX = 0;
         
         function onStart(clientX, clientY) {
+            // 开场动画完成后才允许交互
+            if (!initAnimationComplete) return;
+            
             const rect = viewport.getBoundingClientRect();
             if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) return;
             const el = document.elementFromPoint(clientX, clientY);
@@ -905,6 +1086,9 @@
         }
 
         function onMove(clientX, clientY) {
+            // 开场动画完成后才允许交互
+            if (!initAnimationComplete) return;
+            
             if (!isDragging) return;
             const deltaX = clientX - lastTouchX;
             cameraXOffset -= deltaX * SENSITIVITY;
@@ -922,13 +1106,266 @@
         // ================= 6. 动画循环 =================
         const clock = new THREE.Clock();
         let targetScale = 0.1; let currentScale = 0.1;
+        let initAnimationComplete = false;
+        let initAnimationDuration = 9.0; // 初始动画持续时间（秒）
 
         // 初始化
         update3DLyric();
 
+        // 创建特殊大粒子
+        function createSpecialStar() {
+            if (specialStarCreated) return;
+            
+            let x, y, z;
+            
+            if (isFirstStar) {
+                // 第一次生成，固定位置
+                x = 50;
+                y = 50;
+                z = -200;
+                isFirstStar = false;
+            } else {
+                // 后续生成，随机位置
+                x = Math.random() * 300 - 150; // X: -150 到 150
+                y = Math.random() * 50 + 50;  // Y: 50 到 100
+                z = -200; // Z: 固定为 -200
+            }
+            
+            // 不再更新UI控件的值，因为UI已被删除
+            // 使用默认值
+            const defaultSize = 100;
+            
+            const specialGeo = new THREE.BufferGeometry();
+            const specialPos = [];
+            const specialColor = [];
+            
+            specialPos.push(x, y, z);
+            
+            // 金色
+            const goldColor = new THREE.Color('#ffd700');
+            specialColor.push(goldColor.r, goldColor.g, goldColor.b);
+            
+            specialGeo.setAttribute('position', new THREE.Float32BufferAttribute(specialPos, 3));
+            specialGeo.setAttribute('color', new THREE.Float32BufferAttribute(specialColor, 3));
+            
+            // 随机生成闪烁速度和偏移，与星空粒子保持一致
+            specialStarBlinkSpeed = Math.random() * 3.0 + 0.5;
+            specialStarBlinkOffset = Math.random() * 100.0;
+            
+            const specialMat = new THREE.ShaderMaterial({
+                uniforms: { 
+                    uTime: { value: 0 },
+                    uSize: { value: 100 }, // 使用默认大小
+                    uBrightness: { value: 1.0 }, // 使用默认亮度
+                    uBlinkSpeed: { value: specialStarBlinkSpeed },
+                    uBlinkOffset: { value: specialStarBlinkOffset },
+                    uFade: { value: 0.0 } // 初始透明度为0，用于淡入效果
+                },
+                vertexShader: `
+                    uniform float uTime;
+                    uniform float uSize;
+                    uniform float uBlinkSpeed;
+                    uniform float uBlinkOffset;
+                    uniform float uFade;
+                    attribute vec3 color;
+                    varying vec3 vColor;
+                    varying float vAlpha;
+                    
+                    void main() {
+                        vColor = color;
+                        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                        gl_Position = projectionMatrix * mvPosition;
+                        
+                        // 距离透视优化
+                        float distSize = uSize * (300.0 / -mvPosition.z);
+                        gl_PointSize = clamp(distSize, uSize, 200.0);
+                        
+                        // 增强闪烁效果
+                        float blink1 = sin(uTime * uBlinkSpeed + uBlinkOffset);
+                        float blink2 = sin(uTime * uBlinkSpeed * 2.0 + uBlinkOffset + 10.0);
+                        float twinkle = pow(0.5 + 0.5 * blink1, 2.0) * (0.8 + 0.2 * blink2);
+                        vAlpha = (0.6 + 0.4 * twinkle) * uFade;
+                    }
+                `,
+                fragmentShader: `
+                    uniform float uBrightness;
+                    uniform float uFade;
+                    uniform float uTime;
+                    uniform float uBlinkSpeed;
+                    uniform float uBlinkOffset;
+                    varying vec3 vColor;
+                    varying float vAlpha;
+                    
+                    void main() {
+                        vec2 uv = gl_PointCoord.xy - 0.5;
+                        // 菱形形状：使用曼哈顿距离
+                        float d = abs(uv.x) + abs(uv.y);
+                        if (d > 0.5) discard;
+                        
+                        // 光晕核心优化
+                        float glow = 1.0 - (d * 2.0);
+                        glow = pow(glow, 1.5);
+                        
+                        // 增强颜色闪烁效果
+                        float colorBlink = sin(uTime * uBlinkSpeed * 1.5 + uBlinkOffset + 5.0);
+                        float colorIntensity = 1.0 + 0.3 * colorBlink;
+                        
+                        vec3 finalColor = mix(vColor, vec3(1.0, 0.8, 0.2), glow * 0.8) * uBrightness * uFade * colorIntensity;
+                        
+                        gl_FragColor = vec4(finalColor, vAlpha * glow);
+                    }
+                `,
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false
+            });
+            
+            specialStar = new THREE.Points(specialGeo, specialMat);
+            
+            // 调整y坐标，让屏幕正中央对应y=0
+            const adjustedY = y - 10; // 近似调整，使屏幕中央对应y=0
+            specialStar.position.set(x, adjustedY, z);
+            
+            // 添加碰撞检测几何体，大小与粒子相匹配
+            const size = 100; // 使用默认大小
+            // 减小碰撞检测几何体的大小，使其与粒子在屏幕上的实际大小更匹配
+            const collisionSize = size * 0.1; // 调整为粒子大小的10%，缩小3倍
+            const collisionGeometry = new THREE.SphereGeometry(collisionSize, 16, 16);
+            const collisionMaterial = new THREE.MeshBasicMaterial({ visible: false });
+            specialStarCollision = new THREE.Mesh(collisionGeometry, collisionMaterial);
+            // 调整碰撞检测几何体的位置，使其与粒子的视觉中心重合
+            // 往正上方移动15，以解决碰撞体积在左下方的问题
+            specialStarCollision.position.set(x, adjustedY + 15.0, z);
+            
+            lightStarSystem.add(specialStar);
+            lightStarSystem.add(specialStarCollision);
+            specialStarCreated = true;
+            specialStarFading = false; // 重置淡出状态，准备淡入
+        }
+
+
+
+        // 显示文本文件
+        function showTextFile() {
+            if (currentTextIndex >= textFiles.length) {
+                console.log('所有文本文件都已显示');
+                return;
+            }
+            
+            const textDisplay = document.getElementById('text-display');
+            const textContent = document.getElementById('text-content');
+            
+            textContent.textContent = textFiles[currentTextIndex];
+            textDisplay.style.display = 'block';
+            
+            // 滚动条初始化到最上方
+            textContent.scrollTop = 0;
+            
+            // 添加show类触发淡入效果
+            setTimeout(() => {
+                textDisplay.classList.add('show');
+            }, 10);
+            
+            textDisplayed.push(currentTextIndex);
+            currentTextIndex++;
+        }
+        
+        // 关闭文本框
+        function closeTextDisplay() {
+            const textDisplay = document.getElementById('text-display');
+            
+            // 移除show类触发淡出效果
+            textDisplay.classList.remove('show');
+            
+            // 等待淡出动画完成后再隐藏
+            setTimeout(() => {
+                textDisplay.style.display = 'none';
+            }, 300);
+        }
+        
+        // 点击特殊粒子
+        function handleSpecialStarClick(event) {
+            // 检查文本框是否显示
+            const textDisplay = document.getElementById('text-display');
+            if (textDisplay.style.display === 'block') return;
+            
+            if (!specialStarCollision || specialStarFading) return;
+            
+            const rect = viewport.getBoundingClientRect();
+            const mouse = new THREE.Vector2(
+                ((event.clientX - rect.left) / rect.width) * 2 - 1,
+                -((event.clientY - rect.top) / rect.height) * 2 + 1
+            );
+            
+            // 射线检测
+            const raycaster = new THREE.Raycaster();
+            raycaster.setFromCamera(mouse, camera);
+            
+            const intersects = raycaster.intersectObject(specialStarCollision);
+            if (intersects.length > 0) {
+                // 显示文本文件
+                showTextFile();
+                // 开始淡出动画
+                specialStarFading = true;
+            }
+        }
+
+        // 添加鼠标点击事件监听器
+        document.addEventListener('click', handleSpecialStarClick);
+
         function animate() {
             requestAnimationFrame(animate);
             const t = clock.getElapsedTime();
+
+            // 初始动画逻辑
+            if (!initAnimationComplete) {
+                const progress = Math.min(t / initAnimationDuration, 1.0);
+                uniforms.uInitProgress.value = progress;
+                starMat.uniforms.uInitProgress.value = progress;
+                if (progress >= 1.0) {
+                    initAnimationComplete = true;
+                }
+            }
+
+            // 当歌曲开始播放且还有未显示的文本文件时创建特殊大粒子
+            if (isPlaying && !specialStarCreated && currentTextIndex < textFiles.length) {
+                createSpecialStar();
+            }
+
+            // 更新特殊大粒子
+            if (specialStar) {
+                specialStar.material.uniforms.uTime.value = t;
+                
+                // 处理淡入动画
+                if (!specialStarFading) {
+                    let fade = specialStar.material.uniforms.uFade.value;
+                    if (fade < 1.0) {
+                        fade += 0.02; // 淡入速度
+                        specialStar.material.uniforms.uFade.value = fade;
+                    }
+                }
+                
+                // 处理淡出动画
+                if (specialStarFading) {
+                    let fade = specialStar.material.uniforms.uFade.value;
+                    fade -= 0.02; // 淡出速度
+                    if (fade <= 0) {
+                        // 淡出完成，移除粒子和碰撞检测几何体
+                        lightStarSystem.remove(specialStar);
+                        lightStarSystem.remove(specialStarCollision);
+                        specialStar = null;
+                        specialStarCollision = null;
+                        specialStarCreated = false;
+                        specialStarFading = false;
+                        // 只有当还有未显示的文本文件时才生成新的粒子
+                        if (currentTextIndex < textFiles.length) {
+                            createSpecialStar();
+                        }
+                    } else {
+                        specialStar.material.uniforms.uFade.value = fade;
+                    }
+                }
+            }
 
             if (isPlaying && analyser) {
                 analyser.getByteFrequencyData(dataArray);
@@ -940,6 +1377,14 @@
                 if (lyrics.length > 0 && !isNaN(audioElement.currentTime)) {
                     const currentTime = audioElement.currentTime;
                     console.log(`当前播放时间: ${currentTime}, 当前歌词索引: ${currentLyricIndex}`);
+                    
+                    // 检测歌曲是否循环播放（时间从大变小）
+                    if (audioElement.currentTime < 1 && currentLyricIndex >= lyrics.length - 1) {
+                        currentLyricIndex = 0;
+                        currentLyric = lyrics[0].text;
+                        console.log('歌曲循环播放，重置歌词到开始');
+                        update3DLyric();
+                    }
                     
                     // 找到当前时间对应的歌词
                     let updated = false;
@@ -1066,6 +1511,10 @@
                     letter.position.x += (targetX - letter.position.x) * 0.05;
                     letter.position.y = targetY;
                     letter.position.z = position.z;
+                    
+                    // 添加跟随鼠标的旋转效果，增强3D感
+                    letter.rotation.x = mouseY * 1.0; // 绕x轴旋转（上下移动鼠标），灵敏度增强2倍
+                    letter.rotation.y = currentCameraX * 0.068; // 绕y轴旋转（左右移动鼠标），灵敏度增强3.4倍（原来的2倍再增强1.7倍）
                     
                     // 动态调整缩放因子
                     letter.scale.set(scaleFactor, scaleFactor, 1);
