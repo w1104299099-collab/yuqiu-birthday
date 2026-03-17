@@ -359,47 +359,55 @@
             return lyricArray;
         }
         
-        // 加载文本文件
-        function loadTextFiles() {
-            // 尝试加载txt文件夹中的所有文本文件
-            const textFolder = 'txt/';
-            const textFilesList = ['测试文本.txt', '测试2.txt'];
-            
+        // 加载文本文件（动态遍历txt和html文件夹）
+        async function loadTextFiles() {
             textFiles = [];
             currentTextIndex = 0;
             textDisplayed = [];
             
-            // 按顺序加载文本文件
-            const loadTextFile = (index) => {
-                if (index >= textFilesList.length) {
-                    console.log('文本文件加载完成:', textFiles.length, '个文件');
-                    return Promise.resolve();
-                }
-                
-                const fileName = textFilesList[index];
-                const url = `${textFolder}${fileName}`;
-                
-                console.log(`尝试加载文本文件: ${url}`);
-                
-                return fetch(url)
-                    .then(response => {
-                        if (!response.ok) {
-                            throw new Error(`文件不存在`);
-                        }
-                        return response.text();
-                    })
-                    .then(text => {
-                        console.log(`加载文本文件成功: ${fileName}`);
-                        textFiles.push(text);
-                        return loadTextFile(index + 1);
-                    })
-                    .catch(err => {
-                        console.warn(`加载文本文件失败: ${fileName}`, err.message);
-                        return loadTextFile(index + 1);
-                    });
-            };
+            const folders = ['txt/', 'html/'];
             
-            return loadTextFile(0);
+            for (const folder of folders) {
+                try {
+                    const response = await fetch(folder);
+                    const text = await response.text();
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(text, 'text/html');
+                    const links = doc.querySelectorAll('a');
+                    
+                    const fileList = [];
+                    links.forEach(link => {
+                        const href = link.getAttribute('href');
+                        if (href && (href.endsWith('.txt') || href.endsWith('.html'))) {
+                            const fileName = href.split('/').pop();
+                            fileList.push(folder + fileName);
+                        }
+                    });
+                    
+                    if (fileList.length === 0) {
+                        console.log(`文件夹 ${folder} 中没有找到txt或html文件`);
+                        continue;
+                    }
+                    
+                    for (const filePath of fileList) {
+                        try {
+                            console.log(`尝试加载文本文件: ${filePath}`);
+                            const fileResponse = await fetch(filePath);
+                            if (fileResponse.ok) {
+                                const fileText = await fileResponse.text();
+                                textFiles.push(fileText);
+                                console.log(`加载文本文件成功: ${filePath}`);
+                            }
+                        } catch (err) {
+                            console.warn(`加载文本文件失败: ${filePath}`, err.message);
+                        }
+                    }
+                } catch (error) {
+                    console.error(`无法访问文件夹 ${folder}:`, error.message);
+                }
+            }
+            
+            console.log('文本文件加载完成:', textFiles.length, '个文件');
         }
         
         // 加载歌词文件
@@ -1255,7 +1263,7 @@
             const textDisplay = document.getElementById('text-display');
             const textContent = document.getElementById('text-content');
             
-            textContent.textContent = textFiles[currentTextIndex];
+            textContent.innerHTML = textFiles[currentTextIndex];
             textDisplay.style.display = 'block';
             
             // 滚动条初始化到最上方
