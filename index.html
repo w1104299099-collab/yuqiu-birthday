@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D 粒子系统倒计时</title>
+    <title>祝你生日快乐</title>
     <script src="js/three.min.js"></script>
     <script src="js/tween.umd.js"></script>
     <script src="js/GLTFLoader.js"></script>
@@ -122,6 +122,54 @@
             display: none;
         }
 
+        #bubble-name {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            color: #ffd700;
+            padding: 10px 15px;
+            border-radius: 10px;
+            font-size: 1rem;
+            z-index: 100;
+            display: none;
+            backdrop-filter: blur(5px);
+            box-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+        }
+
+        #hint-text {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            color: #ffd700;
+            padding: 10px 15px;
+            border-radius: 10px;
+            font-size: 1rem;
+            z-index: 100;
+            display: none;
+            opacity: 0;
+            transition: opacity 0.5s ease-in-out;
+            backdrop-filter: blur(5px);
+            box-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+            animation: blink 1.5s ease-in-out infinite;
+        }
+
+        @keyframes blink {
+            0%, 100% {
+                opacity: 1;
+                text-shadow: 0 0 10px rgba(255, 215, 0, 0.8),
+                             0 0 20px rgba(255, 215, 0, 0.6),
+                             0 0 30px rgba(255, 215, 0, 0.4);
+            }
+            50% {
+                opacity: 0.6;
+                text-shadow: 0 0 5px rgba(255, 215, 0, 0.4),
+                             0 0 10px rgba(255, 215, 0, 0.3),
+                             0 0 15px rgba(255, 215, 0, 0.2);
+            }
+        }
+
 .star-item {
             position: absolute;
             width: 70px;
@@ -161,6 +209,10 @@
     <div id="danmaku-container"></div>
 
     <div id="stars-container"></div>
+    <div id="bubble-name"></div>
+    <div id="candle-flame" style="position: absolute; top: 50%; left: 50%; width: 60px; height: 80px; transform: translate(-50%, -190px); cursor: pointer; z-index: 9; display: none;"></div>
+    <div id="hint-text"></div>
+    <video id="yanmovie" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 20; display: none; opacity: 0; transition: opacity 1s ease-in-out;"></video>
 
     <script>
         // 背景音乐循环播放逻辑
@@ -297,11 +349,11 @@ let mouseX = 0;
                 danmakuAudioFiles = [];
                 links.forEach(link => {
                     const href = link.getAttribute('href');
-                    if (href && href.endsWith('.mp3')) {
-                        const fileName = href.split('/').pop();
+                    if (href && href.toLowerCase().endsWith('.mp3')) {
+                        const fileName = decodeURIComponent(href.split('/').pop());
                         danmakuAudioFiles.push({
-                            name: fileName.replace('.mp3', ''),
-                            path: 'voice/' + fileName,
+                            name: fileName.replace(/\.mp3$/i, ''),
+                            path: 'voice/' + href.split('/').pop(),
                             played: false
                         });
                     }
@@ -454,6 +506,8 @@ let mouseX = 0;
         let starScale = 1;
         let starAnimationId = null;
         let starShowTimeoutId = null;
+        let isAudioPlaying = false;
+        let isBirthdayAudioPlaying = false;
 
         function updateStarScale() {
             const minDimension = Math.min(window.innerWidth, window.innerHeight);
@@ -547,11 +601,23 @@ function createStarItem(file) {
             bubble.addEventListener('mouseenter', () => {
                 bubble._starData.paused = true;
                 bubble._starData.useCached = true;
+                
+                // 显示泡泡名字
+                const bubbleName = document.getElementById('bubble-name');
+                const fileName = file.name;
+                // 以"："为分隔符，取前面的字符串作为名字
+                const name = fileName.split('：')[0];
+                bubbleName.textContent = `这个泡泡是：${name}`;
+                bubbleName.style.display = 'block';
             });
             
             bubble.addEventListener('mouseleave', () => {
                 bubble._starData.paused = false;
                 bubble._starData.useCached = false;
+                
+                // 隐藏泡泡名字
+                const bubbleName = document.getElementById('bubble-name');
+                bubbleName.style.display = 'none';
             });
             
             // 点击播放音频
@@ -564,7 +630,10 @@ function createStarItem(file) {
         }
 
         function playStarAudio(file, star) {
-            if (file.played) return;
+            if (file.played || isAudioPlaying) return;
+            
+            // 设置音频播放状态为 true
+            isAudioPlaying = true;
             
             // 设置标志，表示泡泡正在播放飞散动画
             star._starData.playing = true;
@@ -593,10 +662,14 @@ function createStarItem(file) {
             const audio = new Audio(file.path);
             audio.play().catch(error => {
                 console.error('Failed to play audio:', error);
+                // 如果播放失败，重置音频播放状态
+                isAudioPlaying = false;
             });
             
             audio.addEventListener('ended', () => {
                 file.played = true;
+                // 重置音频播放状态
+                isAudioPlaying = false;
                 // 播放完毕后，移除泡泡
                 setTimeout(() => {
                     if (star.parentNode) {
@@ -945,9 +1018,8 @@ async function init() {
             console.log('Init function called');
             // 确保星星系统隐藏
             hideStars();
-            // 播放背景音乐
+            // 初始化背景音乐循环，但不立即播放
             setupBgmLoop();
-            startBgm();
             scene = new THREE.Scene();
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
             camera.position.z = 80; // 拉近相机，使粒子更清晰可见
@@ -956,6 +1028,12 @@ async function init() {
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
             document.body.appendChild(renderer.domElement);
+            
+            // 麦克风相关初始化
+            initMicrophone();
+            
+            // 初始化火苗元素
+            initFlameElement();
 
             const sprite = createParticleTexture();
             material = new THREE.PointsMaterial({
@@ -1115,6 +1193,18 @@ async function init() {
                         if (completed === candleParticleCount) {
                             currentState2 = 'candle';
                             isTransitioning = false; // 聚拢完成，允许用户操作
+                            // 显示火苗元素
+                            if (flameElement) {
+                                flameElement.style.display = 'block';
+                            }
+                            // 显示蜡烛页面提示词
+                            const hintText = document.getElementById('hint-text');
+                            hintText.textContent = '请长按火苗并吹气';
+                            hintText.style.display = 'block';
+                            // 触发渐入效果
+                            setTimeout(() => {
+                                hintText.style.opacity = '1';
+                            }, 10);
                         }
                     })
                     .start();
@@ -1566,10 +1656,44 @@ if (btnText === '再次启航') {
                 document.getElementById('start-btn').style.display = 'none';
                 document.getElementById('hint').style.display = 'none';
             } else if (currentState2 === 'candle') {
-                // 点击蜡烛时，先飞散粒子，然后聚合成礼物盒
+                // 点击蜡烛时，同步播放生日快乐音频、触发蜡烛消散动画
                 isTransitioning = true;
                 
-                // 先让第二系统的所有粒子随机向外飞散
+                // 隐藏火苗元素
+                if (flameElement) {
+                    flameElement.style.display = 'none';
+                }
+                
+                // 隐藏提示词（渐出效果）
+                const hintText = document.getElementById('hint-text');
+                hintText.style.opacity = '0';
+                // 等待过渡效果完成后再隐藏
+                setTimeout(() => {
+                    hintText.style.display = 'none';
+                }, 500);
+                
+                // 播放生日快乐音频
+                const birthdayAudio = new Audio('birthdayvoice/生日快乐合集.mp3');
+                isBirthdayAudioPlaying = true;
+                birthdayAudio.play().catch(error => {
+                    console.error('Failed to play birthday audio:', error);
+                    isBirthdayAudioPlaying = false;
+                });
+                
+                // 当音频播放完毕后，设置标志为false，并显示礼物盒提示词
+                birthdayAudio.addEventListener('ended', () => {
+                    isBirthdayAudioPlaying = false;
+                    // 显示礼物盒页面提示词
+                    const hintText = document.getElementById('hint-text');
+                    hintText.textContent = '点击礼物盒打开礼物';
+                    hintText.style.display = 'block';
+                    // 触发渐入效果
+                    setTimeout(() => {
+                        hintText.style.opacity = '1';
+                    }, 10);
+                });
+                
+                // 同时让第二系统的所有粒子随机向外飞散
                 const posAttr2 = geometry2.attributes.position;
                 const count2 = currentParticleCount2;
                 
@@ -1669,9 +1793,18 @@ if (btnText === '再次启航') {
                 if (canEnterCountdown()) {
                     startCountdownSequence();
                 }
-            } else if (currentState2 === 'giftBox' || currentState2 === 'candle') {
-                // 点击礼物盒或蜡烛时调用启航功能
-                onStart();
+            } else if (currentState2 === 'giftBox') {
+                // 点击礼物盒时，检查生日快乐语音是否播放完毕
+                if (!isBirthdayAudioPlaying) {
+                    // 隐藏提示词（渐出效果）
+                    const hintText = document.getElementById('hint-text');
+                    hintText.style.opacity = '0';
+                    // 等待过渡效果完成后再隐藏并执行onStart
+                    setTimeout(() => {
+                        hintText.style.display = 'none';
+                        onStart();
+                    }, 500);
+                }
             }
         }
 
@@ -1942,6 +2075,7 @@ if (btnText === '再次启航') {
             // 倒计时结束后，第二系统的粒子飞散
             const posAttr2 = geometry2.attributes.position;
             const count2 = currentParticleCount2;
+            let completed = 0;
             
             for (let i = 0; i < count2; i++) {
                 const currentX = posAttr2.array[i * 3];
@@ -1955,16 +2089,71 @@ if (btnText === '再次启航') {
                         [i * 3 + 2]: currentZ + (Math.random() - 0.5) * 500
                     }, 2000)
                     .easing(TWEEN.Easing.Exponential.Out)
+                    .onComplete(() => {
+                        completed++;
+                        if (completed === count2) {
+                            // 粒子消散动画完成后，加载并播放视频
+                            setTimeout(() => {
+                                playVideo();
+                            }, 500);
+                        }
+                    })
                     .start();
             }
             
-            // 显示"再次启航"按钮
-            document.getElementById('start-btn').style.display = 'block';
-            document.getElementById('start-btn').innerText = '再次启航';
+            // 隐藏所有元素
+            document.getElementById('start-btn').style.display = 'none';
             document.getElementById('hint').style.display = 'none';
             hideStars(); // 隐藏星星系统
-            showDanmaku();
+            // 不显示弹幕系统
+            
             isTransitioning = false;
+            
+            // 播放视频函数
+            function playVideo() {
+                const video = document.getElementById('yanmovie');
+                video.src = 'yanmovie/印象深刻-啊嘞咧（含祝福.mov';
+                video.style.display = 'block';
+                
+                // 触发淡入效果
+                setTimeout(() => {
+                    video.style.opacity = '1';
+                }, 10);
+                
+                video.play().catch(error => {
+                    console.error('Failed to play video:', error);
+                });
+                
+                // 视频播放完毕后，淡出视频
+                video.addEventListener('ended', () => {
+                    video.style.opacity = '0';
+                    setTimeout(() => {
+                        video.style.display = 'none';
+                        video.src = '';
+                        
+                        // 视频淡出后，开始星空淡出
+                        fadeOutStars();
+                    }, 1000);
+                });
+            }
+            
+            // 星空淡出函数
+            function fadeOutStars() {
+                const container = document.getElementById('stars-container');
+                if (container) {
+                    // 设置过渡效果
+                    container.style.transition = 'opacity 1s ease-in-out';
+                    container.style.opacity = '0';
+                    
+                    // 淡出完成后跳转到yuqiumusic.html页面
+                    setTimeout(() => {
+                        window.location.href = 'yuqiumusic.html';
+                    }, 1000);
+                } else {
+                    // 如果星星容器不存在，直接跳转
+                    window.location.href = 'yuqiumusic.html';
+                }
+            }
         }
 
         function performMorph(targetKey, duration, easing) {
@@ -2089,6 +2278,155 @@ if (btnText === '再次启航') {
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
             updateStarScale();
+        }
+        
+        // 麦克风相关变量
+        let audioContext;
+        let analyser;
+        let microphone;
+        let dataArray;
+        let bufferLength;
+        let isMicEnabled = false;
+        let windDetected = false;
+        // 动态调整的阈值
+        let energyThreshold = 4000;
+        let lowFreqRatioThreshold = 0.85;
+        // 初始阈值
+        const initialEnergyThreshold = 4000;
+        const initialLowFreqRatioThreshold = 0.85;
+        // 阈值调整步长
+        const thresholdStep = 50;
+        const ratioStep = 0.02;
+        // 火苗交互变量
+        let isFlamePressed = false;
+        let flameElement;
+        let flamePressStartTime = 0;
+        
+        // 初始化麦克风
+        function initMicrophone() {
+            // 页面加载时自动请求麦克风权限
+            async function requestMicPermission() {
+                try {
+                    // 请求麦克风权限
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    
+                    // 创建音频上下文
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    
+                    // 创建分析器
+                    analyser = audioContext.createAnalyser();
+                    analyser.fftSize = 256;
+                    bufferLength = analyser.frequencyBinCount;
+                    dataArray = new Uint8Array(bufferLength);
+                    
+                    // 连接麦克风
+                    microphone = audioContext.createMediaStreamSource(stream);
+                    microphone.connect(analyser);
+                    
+                    // 开始分析音频
+                    isMicEnabled = true;
+                    console.log('麦克风已自动启用');
+                    
+                    // 开始检测风声
+                    detectWind();
+                } catch (error) {
+                    console.error('Error accessing microphone:', error);
+                    // 不显示 alert，避免打扰用户
+                }
+            }
+            
+            // 调用请求麦克风权限的函数
+            requestMicPermission();
+        }
+        
+        // 初始化火苗元素
+        function initFlameElement() {
+            flameElement = document.getElementById('candle-flame');
+            
+            // 显示火苗元素
+            flameElement.style.display = 'block';
+            
+            // 添加鼠标事件监听器
+            flameElement.addEventListener('mousedown', () => {
+                isFlamePressed = true;
+                flamePressStartTime = Date.now();
+            });
+            
+            document.addEventListener('mouseup', () => {
+                isFlamePressed = false;
+                flamePressStartTime = 0;
+            });
+            
+            // 当状态变为蜡烛时，确保火苗元素可见
+            // 这里可以在状态变化时调用
+        }
+        
+        // 检测风声
+        function detectWind() {
+            if (!isMicEnabled) return;
+            
+            // 分析音频数据
+            analyser.getByteFrequencyData(dataArray);
+            
+            // 计算低频能量（风声主要集中在低频）
+            let lowFrequencyEnergy = 0;
+            const lowFreqRange = Math.floor(bufferLength * 0.1); // 前10%的频率范围
+            
+            for (let i = 0; i < lowFreqRange; i++) {
+                lowFrequencyEnergy += dataArray[i];
+            }
+            
+            // 计算总能量
+            let totalEnergy = 0;
+            for (let i = 0; i < bufferLength; i++) {
+                totalEnergy += dataArray[i];
+            }
+            
+            // 计算低频能量占比
+            const lowFreqRatio = lowFrequencyEnergy / totalEnergy;
+            
+            // 当检测到有一定强度的声音时，逐渐降低阈值
+            if (totalEnergy > 1500) {
+                // 降低能量阈值，但不低于最小值
+                if (energyThreshold > 500) {
+                    energyThreshold -= thresholdStep;
+                }
+                // 降低低频比例阈值，但不低于最小值
+                if (lowFreqRatioThreshold > 0.4) {
+                    lowFreqRatioThreshold -= ratioStep;
+                }
+            }
+            
+            // 检查鼠标按住时间是否达到3秒
+            const isPressLongEnough = isFlamePressed && flamePressStartTime > 0 && (Date.now() - flamePressStartTime) >= 3000;
+            
+            // 风声特征：低频能量占比较高，且总能量超过阈值，且鼠标按住时间足够长
+            if (totalEnergy > energyThreshold && lowFreqRatio > lowFreqRatioThreshold && !windDetected && isPressLongEnough) {
+                windDetected = true;
+                console.log('Wind detected while holding flame for 3 seconds!');
+                
+                // 触发蜡烛消散效果
+                if (currentState2 === 'candle' && !isTransitioning) {
+                    // 确保bgm播放
+                    startBgm();
+                    
+                    // 触发蜡烛消散
+                    onStart();
+                }
+                
+                // 3秒后重置检测状态和阈值
+                setTimeout(() => {
+                    windDetected = false;
+                    isFlamePressed = false;
+                    flamePressStartTime = 0;
+                    // 重置阈值到初始值
+                    energyThreshold = initialEnergyThreshold;
+                    lowFreqRatioThreshold = initialLowFreqRatioThreshold;
+                }, 3000);
+            }
+            
+            // 继续检测
+            requestAnimationFrame(detectWind);
         }
 
         function animate(time) {
